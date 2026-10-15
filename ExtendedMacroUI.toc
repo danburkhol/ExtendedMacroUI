@@ -1,0 +1,12 @@
+## Interface: 20506
+## Title: Extended Macro UI
+## Notes: A replacement macro window for WoW Classic.
+## Author: danburkhol
+## Version: 0.7.2
+## SavedVariables: ExtendedMacroUIDB
+
+Core.lua
+MacroData.lua
+Editor.lua
+MainFrame.lua
+IconPicker.lua

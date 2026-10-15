@@ -1,0 +1,5 @@
+# Design assets (mockup + reference images), not part of the shipped addon
+design/
+
+# Local clone of Blizzard UI source used only as reference
+wow-ui-source/
