@@ -39,8 +39,9 @@ function ns.SetTooltip(button, title, combatSensitive)
 end
 
 local DB_DEFAULTS = {
-	position = nil, -- { point, relPoint, x, y }
+	position = nil, -- { point, relPoint, x, y } (free-floating mode only)
 	takeoverMacro = false, -- /macro opens this window instead of Blizzard's
+	lockToPanel = true, -- open as a managed UI panel (like Blizzard's windows)
 }
 
 local function CopyDefaults(dst, src)
@@ -115,19 +116,127 @@ local function OpenNativeMacro()
 end
 ns.OpenNativeMacro = OpenNativeMacro
 
+--------------------------------------------------------------------------------
+-- Window layout: locked UI panel (default) vs. free-floating
+--------------------------------------------------------------------------------
+
+-- Panel registration mirrors Blizzard's own MacroFrame, so our window joins the
+-- managed layout and pushes alongside the character panel, spellbook, etc.
+local PANEL_ATTRS = { area = "left", pushable = 1, whileDead = 1 }
+
+-- Add/remove the main frame from UISpecialFrames. Panel-managed frames are
+-- closed on Escape by the panel system; UISpecialFrames would raw-Hide them and
+-- leave the layout slot stuck, so only free-floating mode registers there.
+local function SetSpecialFrame(enabled)
+	local name = ns.frame and ns.frame:GetName()
+	if not name then
+		return
+	end
+	for i = #UISpecialFrames, 1, -1 do
+		if UISpecialFrames[i] == name then
+			tremove(UISpecialFrames, i)
+		end
+	end
+	if enabled then
+		tinsert(UISpecialFrames, name)
+	end
+end
+
+-- Applies the current lockToPanel setting to the frame. Out of combat only
+-- (it reshuffles panel registration and attributes); the window should be hidden.
+function ns.ApplyLayoutMode()
+	local frame = ns.frame
+	if not frame then
+		return
+	end
+	local name = frame:GetName()
+	if ns.db.lockToPanel then
+		UIPanelWindows[name] = PANEL_ATTRS
+		-- Force the panel manager to re-read the attributes on the next show.
+		frame:SetAttribute("UIPanelLayout-defined", false)
+		frame:SetMovable(false)
+		SetSpecialFrame(false)
+	else
+		UIPanelWindows[name] = nil
+		frame:SetAttribute("UIPanelLayout-defined", false)
+		frame:SetMovable(true)
+		SetSpecialFrame(true)
+	end
+	if ns.MainFrame and ns.MainFrame.RestorePosition then
+		ns.MainFrame:RestorePosition()
+	end
+end
+
+-- Opens/closes the window with the mechanism its current mode needs, and
+-- remembers which was used so Close matches Open even if the mode changed.
+function ns.OpenMain()
+	local frame = ns.frame
+	if not frame or frame:IsShown() then
+		return
+	end
+	if ns.db.lockToPanel then
+		ns.openedAsPanel = true
+		-- Blizzard blocks ShowUIPanel in combat (same as the native panel).
+		ShowUIPanel(frame)
+	else
+		ns.openedAsPanel = false
+		frame:Show()
+	end
+end
+
+function ns.CloseMain()
+	local frame = ns.frame
+	if not frame or not frame:IsShown() then
+		return
+	end
+	if ns.openedAsPanel then
+		HideUIPanel(frame)
+	else
+		frame:Hide()
+	end
+end
+
 function ns.Toggle()
 	local frame = ns.frame
 	if not frame then
 		return
 	end
-	-- The window itself is unprotected (its secure Run button lives on
-	-- UIParent), so it can open/close/move in combat.
 	if frame:IsShown() then
-		frame:Hide()
+		ns.CloseMain()
 	else
-		frame:Show()
+		ns.OpenMain()
 	end
 end
+
+-- Changes the lock setting and re-applies the layout. Panels can't be moved or
+-- shown in combat, so a change made then is deferred to PLAYER_REGEN_ENABLED.
+function ns.SetLockToPanel(value)
+	value = not not value
+	ns.db.lockToPanel = value
+	if InCombatLockdown() then
+		ns.pendingLayout = true
+		ns.Print("Window layout will update when you leave combat.")
+		return
+	end
+	ns.pendingLayout = nil
+	local frame = ns.frame
+	local wasShown = frame and frame:IsShown()
+	if wasShown then
+		ns.CloseMain()
+	end
+	ns.ApplyLayoutMode()
+	if wasShown then
+		ns.OpenMain()
+	end
+end
+
+local combatWatcher = CreateFrame("Frame")
+combatWatcher:RegisterEvent("PLAYER_REGEN_ENABLED")
+combatWatcher:SetScript("OnEvent", function()
+	if ns.pendingLayout then
+		ns.SetLockToPanel(ns.db.lockToPanel)
+	end
+end)
 
 -- The EMU/Macro buttons switch which window /macro opens and swap windows now.
 function ns.SwitchToEMU()
@@ -137,17 +246,13 @@ function ns.SwitchToEMU()
 	if MacroFrame and MacroFrame:IsShown() and not InCombatLockdown() then
 		HideUIPanel(MacroFrame)
 	end
-	if ns.frame and not ns.frame:IsShown() then
-		ns.frame:Show()
-	end
+	ns.OpenMain()
 end
 
 function ns.SwitchToNative()
 	ns.db.takeoverMacro = false
 	ApplyMacroTakeover()
-	if ns.frame and ns.frame:IsShown() then
-		ns.frame:Hide()
-	end
+	ns.CloseMain()
 	OpenNativeMacro()
 end
 
@@ -170,6 +275,62 @@ local function EnsureNativeButton()
 end
 ns.EnsureNativeButton = EnsureNativeButton
 
+-- Options panel, built with the modern Settings API (present on this client).
+-- Checkboxes drive lockToPanel and takeoverMacro; both mirror the /emu commands.
+local optionsCategory
+local function BuildOptions()
+	if optionsCategory or not Settings or not Settings.RegisterVerticalLayoutCategory then
+		return
+	end
+	local category = Settings.RegisterVerticalLayoutCategory("Extended Macro UI")
+
+	local function GetLock()
+		return ns.db.lockToPanel
+	end
+	local function SetLock(value)
+		ns.SetLockToPanel(value)
+	end
+	local lockSetting = Settings.RegisterProxySetting(category, "EXTENDEDMACROUI_LOCK_PANEL",
+		Settings.VarType.Boolean, "Lock window as a UI panel",
+		Settings.Default.True, GetLock, SetLock)
+
+	local lockTooltip = "On (default): the window opens in a fixed position and shares the"
+		.. " screen with other panels like the character or spellbook window.\n\n"
+		.. "Off: the window floats free and can be dragged anywhere, independent of"
+		.. " other panels."
+	Settings.CreateCheckbox(category, lockSetting, lockTooltip)
+
+	-- Make /macro open Extended Macro UI instead of Blizzard's window
+	-- (equivalent to /emu macro).
+	local function GetTakeover()
+		return ns.db.takeoverMacro
+	end
+	local function SetTakeover(value)
+		ns.db.takeoverMacro = not not value
+		ApplyMacroTakeover()
+	end
+	local takeoverSetting = Settings.RegisterProxySetting(category, "EXTENDEDMACROUI_TAKEOVER_MACRO",
+		Settings.VarType.Boolean, "Use as the default macro window (/macro)",
+		Settings.Default.False, GetTakeover, SetTakeover)
+
+	local takeoverTooltip = "On: typing /macro (and the game's Macros button) opens"
+		.. " Extended Macro UI instead of Blizzard's macro window.\n\n"
+		.. "Off (default): /macro opens Blizzard's macro window."
+	Settings.CreateCheckbox(category, takeoverSetting, takeoverTooltip)
+
+	Settings.RegisterAddOnCategory(category)
+	optionsCategory = category
+end
+
+-- Opens our Settings panel.
+function ns.OpenOptions()
+	if optionsCategory and Settings and Settings.OpenToCategory then
+		Settings.OpenToCategory(optionsCategory:GetID())
+	else
+		ns.Print("Options are unavailable on this client.")
+	end
+end
+
 local function Initialize()
 	ExtendedMacroUIDB = ExtendedMacroUIDB or {}
 	ns.db = CopyDefaults(ExtendedMacroUIDB, DB_DEFAULTS)
@@ -187,6 +348,16 @@ local function Initialize()
 			else
 				ns.Print("/macro restored to the default macro window.")
 			end
+		elseif msg == "lock" then
+			ns.SetLockToPanel(true)
+			ns.Print("Window locked to its UI-panel position.")
+		elseif msg == "unlock" then
+			ns.SetLockToPanel(false)
+			ns.Print("Window unlocked; drag it anywhere.")
+		elseif msg == "options" or msg == "config" then
+			ns.OpenOptions()
+		elseif msg == "help" then
+			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro")
 		else
 			ns.Toggle()
 		end
@@ -195,6 +366,15 @@ local function Initialize()
 	ApplyMacroTakeover()
 
 	ns.MainFrame:Create()
+
+	-- Apply the saved lock/float mode now that the frame exists.
+	ns.ApplyLayoutMode()
+
+	-- Build the options panel; isolate it so a failure can't abort init.
+	local okOpts, errOpts = pcall(BuildOptions)
+	if not okOpts then
+		ns.Print("Options panel failed to load: " .. tostring(errOpts))
+	end
 
 	-- Isolate the icon picker so a failure there surfaces instead of
 	-- silently aborting init.

@@ -13,6 +13,7 @@ globals = {
 	"SLASH_EMU1",
 	"SlashCmdList",
 	"UISpecialFrames",
+	"UIPanelWindows",
 	"StaticPopupDialogs",
 }
 
@@ -75,4 +76,6 @@ read_globals = {
 	"ShowUIPanel",
 	"HideUIPanel",
 	"C_AddOns",
+	-- Settings (options panel)
+	"Settings",
 }

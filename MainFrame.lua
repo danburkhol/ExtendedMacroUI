@@ -105,8 +105,18 @@ local function SavePosition(frame)
 	end
 end
 
-local function RestorePosition(frame)
+function MainFrame:RestorePosition()
+	local frame = self.frame
+	if not frame then
+		return
+	end
 	frame:ClearAllPoints()
+	-- In locked mode the panel manager positions the frame on ShowUIPanel;
+	-- we only need a valid anchor beforehand.
+	if ns.db and ns.db.lockToPanel then
+		frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 16, -116)
+		return
+	end
 	local pos = ns.db and ns.db.position
 	if pos and type(pos.point) == "string" then
 		frame:SetPoint(pos.point, UIParent, pos.relPoint or pos.point, pos.x or 0, pos.y or 0)
@@ -288,17 +298,21 @@ function MainFrame:Create()
 	macroButton:SetScript("OnClick", ns.SwitchToNative)
 	ns.SetTooltip(macroButton, "Switch to the default macro window.")
 
-	frame:SetMovable(true)
+	-- Movability/registration is set per mode by ns.ApplyLayoutMode(); dragging
+	-- only does anything in free-floating mode.
 	frame:SetClampedToScreen(true)
 	frame:EnableMouse(true)
 	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
+	frame:SetScript("OnDragStart", function(f)
+		if ns.db and ns.db.lockToPanel then
+			return
+		end
+		f:StartMoving()
+	end)
 	frame:SetScript("OnDragStop", function(f)
 		f:StopMovingOrSizing()
 		SavePosition(f)
 	end)
-
-	tinsert(UISpecialFrames, MAIN_FRAME_NAME)
 
 	frame:SetScript("OnShow", function(f)
 		PlaySound(SOUNDKIT.IG_CHARACTER_INFO_OPEN)
@@ -329,7 +343,7 @@ function MainFrame:Create()
 	self.frame = frame
 	ns.frame = frame
 
-	RestorePosition(frame)
+	self:RestorePosition()
 
 	self:CreateTabs(frame)
 	self:CreateListPane(frame)
