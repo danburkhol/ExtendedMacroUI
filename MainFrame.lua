@@ -352,6 +352,14 @@ function MainFrame:Create()
 	macroButton:SetPoint("RIGHT", frame.CloseButton, "LEFT", 0, 0)
 	ns.SetTooltip(macroButton, "Switch to the default macro window.")
 
+	-- Gear button left of "Macro" that jumps to the addon's settings page. A
+	-- standard red panel button (same style as the others) with the gear glyph
+	-- Blizzard uses on its own options buttons, via inline atlas markup.
+	local optionsButton = ns.CreateButton(frame, "|A:OptionsIcon-Brown:16:16|a", 24, 20, ns.OpenOptions)
+	optionsButton:SetPoint("RIGHT", macroButton, "LEFT", -2, 0)
+	ns.SetTooltip(optionsButton, "Open Extended Macro UI settings.")
+	self.optionsButton = optionsButton
+
 	-- Movability/registration is set per mode by ns.ApplyLayoutMode(); dragging
 	-- only does anything in free-floating mode.
 	frame:SetClampedToScreen(true)
