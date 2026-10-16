@@ -57,10 +57,10 @@ local function InitIconButton(button, index)
 		button.Icon = button:CreateTexture(nil, "ARTWORK")
 		button.Icon:SetSize(32, 32)
 		button.Icon:SetPoint("CENTER")
-		button.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		ns.TrimIcon(button.Icon)
 
 		button.Selected = button:CreateTexture(nil, "OVERLAY")
-		button.Selected:SetSize(37, 37)
+		button.Selected:SetSize(CELL_SIZE, CELL_SIZE)
 		button.Selected:SetPoint("CENTER")
 		button.Selected:SetTexture("Interface\\Buttons\\CheckButtonHilight")
 		button.Selected:SetBlendMode("ADD")
@@ -104,13 +104,7 @@ end
 --------------------------------------------------------------------------------
 
 function IconPicker:Create()
-	local frame = CreateFrame("Frame", "ExtendedMacroUIIconPicker", UIParent, "ButtonFrameTemplate")
-	frame:SetSize(PICKER_WIDTH, PICKER_HEIGHT)
-	frame:SetFrameStrata("HIGH")
-	frame:SetToplevel(true)
-	frame:Hide()
-	frame:SetTitle("Change Icon")
-	frame:SetPortraitToAsset("Interface\\MacroFrame\\MacroFrame-Icon")
+	local frame = ns.CreatePortraitWindow("ExtendedMacroUIIconPicker", PICKER_WIDTH, PICKER_HEIGHT, "Change Icon")
 
 	-- Dock to the main window's top-right; follows it when it moves.
 	frame:SetPoint("TOPLEFT", ns.frame, "TOPRIGHT", 6, 0)
@@ -126,7 +120,7 @@ function IconPicker:Create()
 	local preview = inset:CreateTexture(nil, "ARTWORK")
 	preview:SetSize(40, 40)
 	preview:SetPoint("TOPLEFT", previewLabel, "BOTTOMLEFT", 2, -6)
-	preview:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	ns.TrimIcon(preview)
 	self.preview = preview
 
 	-- "Choose an Icon:" label + filter dropdown, right of the preview.
@@ -147,17 +141,11 @@ function IconPicker:Create()
 	self.dropdown = dropdown
 
 	-- Okay / Cancel, bottom-right inside the frame.
-	local cancel = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	cancel:SetSize(90, 22)
+	local cancel = ns.CreateButton(frame, "Cancel", 90, 22, function() IconPicker:Close() end)
 	cancel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 6)
-	cancel:SetText("Cancel")
-	cancel:SetScript("OnClick", function() IconPicker:Close() end)
 
-	local okay = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	okay:SetSize(90, 22)
+	local okay = ns.CreateButton(frame, "Okay", 90, 22, function() IconPicker:Okay() end)
 	okay:SetPoint("BOTTOMRIGHT", cancel, "BOTTOMLEFT", -6, 0)
-	okay:SetText("Okay")
-	okay:SetScript("OnClick", function() IconPicker:Okay() end)
 
 	-- Icon grid.
 	local box = CreateFrame("Frame", nil, inset, "InsetFrameTemplate")

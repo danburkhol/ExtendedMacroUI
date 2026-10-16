@@ -2,6 +2,7 @@ local ADDON_NAME, ns = ...
 
 -- Cache hot globals as locals.
 local CreateFrame = CreateFrame
+local UIParent = UIParent
 local DEFAULT_CHAT_FRAME = DEFAULT_CHAT_FRAME
 local InCombatLockdown = InCombatLockdown
 local GameTooltip = GameTooltip
@@ -36,6 +37,46 @@ function ns.SetTooltip(button, title, combatSensitive)
 		GameTooltip:Show()
 	end)
 	button:SetScript("OnLeave", HideTooltip)
+end
+
+--------------------------------------------------------------------------------
+-- Shared UI helpers
+--------------------------------------------------------------------------------
+
+-- Standard red panel button. Callers add their own SetPoint / tooltip.
+function ns.CreateButton(parent, text, width, height, onClick)
+	local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+	button:SetSize(width, height)
+	button:SetText(text)
+	if onClick then
+		button:SetScript("OnClick", onClick)
+	end
+	return button
+end
+
+-- A hidden, movable-elsewhere portrait window (our two windows share this
+-- chrome). Callers position it, set scripts and add their own contents.
+function ns.CreatePortraitWindow(name, width, height, title)
+	local frame = CreateFrame("Frame", name, UIParent, "ButtonFrameTemplate")
+	frame:SetSize(width, height)
+	frame:SetFrameStrata("HIGH")
+	frame:SetToplevel(true)
+	frame:Hide()
+	frame:SetTitle(title)
+	frame:SetPortraitToAsset("Interface\\MacroFrame\\MacroFrame-Icon")
+	return frame
+end
+
+-- Trims the 1px border baked into icon textures so they don't look inset.
+function ns.TrimIcon(texture)
+	texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	return texture
+end
+
+-- The muted parchment color used for secondary/disabled text.
+ns.MUTED_COLOR = { 0.72, 0.67, 0.54 }
+function ns.SetMutedText(fontString)
+	fontString:SetTextColor(ns.MUTED_COLOR[1], ns.MUTED_COLOR[2], ns.MUTED_COLOR[3])
 end
 
 local DB_DEFAULTS = {
@@ -261,15 +302,12 @@ local function EnsureNativeButton()
 	if ns.nativeButton or not MacroFrame then
 		return
 	end
-	local btn = CreateFrame("Button", nil, MacroFrame, "UIPanelButtonTemplate")
-	btn:SetSize(44, 20)
-	btn:SetText("EMU")
+	local btn = ns.CreateButton(MacroFrame, "EMU", 44, 20, ns.SwitchToEMU)
 	if MacroFrame.CloseButton then
 		btn:SetPoint("RIGHT", MacroFrame.CloseButton, "LEFT", 0, 0)
 	else
 		btn:SetPoint("TOPRIGHT", MacroFrame, "TOPRIGHT", -30, -4)
 	end
-	btn:SetScript("OnClick", ns.SwitchToEMU)
 	ns.SetTooltip(btn, "Switch to Extended Macro UI, and make /macro open it.")
 	ns.nativeButton = btn
 end

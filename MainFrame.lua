@@ -149,7 +149,7 @@ local function InitRow(button, data)
 		button.Icon = button:CreateTexture(nil, "ARTWORK")
 		button.Icon:SetSize(18, 18)
 		button.Icon:SetPoint("LEFT", 3, 0)
-		button.Icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+		ns.TrimIcon(button.Icon)
 
 		-- Gold dot marking a row with unsaved edits.
 		button.Dirty = button:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -225,19 +225,13 @@ function MainFrame:CreateListPane(frame)
 	ns.RegisterEditBox(search)
 
 	-- Bottom row: New / Delete buttons on the right, count on the left.
-	local deleteButton = CreateFrame("Button", nil, pane, "UIPanelButtonTemplate")
-	deleteButton:SetSize(64, 22)
+	local deleteButton = ns.CreateButton(pane, "Delete", 64, 22, function() MainFrame:DeleteSelected() end)
 	deleteButton:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", 0, 0)
-	deleteButton:SetText("Delete")
-	deleteButton:SetScript("OnClick", function() MainFrame:DeleteSelected() end)
 	ns.SetTooltip(deleteButton, "Delete the selected macro.", true)
 	self.deleteButton = deleteButton
 
-	local newButton = CreateFrame("Button", nil, pane, "UIPanelButtonTemplate")
-	newButton:SetSize(64, 22)
+	local newButton = ns.CreateButton(pane, "New", 64, 22, function() MainFrame:NewMacro() end)
 	newButton:SetPoint("RIGHT", deleteButton, "LEFT", -4, 0)
-	newButton:SetText("New")
-	newButton:SetScript("OnClick", function() MainFrame:NewMacro() end)
 	ns.SetTooltip(newButton, "Create a new macro in this tab.", true)
 	self.newButton = newButton
 
@@ -259,7 +253,7 @@ function MainFrame:CreateListPane(frame)
 	emptyText:SetPoint("LEFT", box, "LEFT", 14, 0)
 	emptyText:SetPoint("RIGHT", box, "RIGHT", -14, 0)
 	emptyText:SetJustifyH("CENTER")
-	emptyText:SetTextColor(0.72, 0.67, 0.54)
+	ns.SetMutedText(emptyText)
 	emptyText:Hide()
 	self.emptyText = emptyText
 
@@ -281,21 +275,11 @@ function MainFrame:CreateListPane(frame)
 end
 
 function MainFrame:Create()
-	local frame = CreateFrame("Frame", MAIN_FRAME_NAME, UIParent, "ButtonFrameTemplate")
-	frame:SetSize(MAIN_WIDTH, MAIN_HEIGHT)
-	frame:SetFrameStrata("HIGH")
-	frame:SetToplevel(true)
-	frame:Hide()
-
-	frame:SetTitle("Create Macros")
-	frame:SetPortraitToAsset("Interface\\MacroFrame\\MacroFrame-Icon")
+	local frame = ns.CreatePortraitWindow(MAIN_FRAME_NAME, MAIN_WIDTH, MAIN_HEIGHT, "Create Macros")
 
 	-- Button to switch back to Blizzard's macro window, left of the close "X".
-	local macroButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	macroButton:SetSize(56, 20)
-	macroButton:SetText("Macro")
+	local macroButton = ns.CreateButton(frame, "Macro", 56, 20, ns.SwitchToNative)
 	macroButton:SetPoint("RIGHT", frame.CloseButton, "LEFT", 0, 0)
-	macroButton:SetScript("OnClick", ns.SwitchToNative)
 	ns.SetTooltip(macroButton, "Switch to the default macro window.")
 
 	-- Movability/registration is set per mode by ns.ApplyLayoutMode(); dragging

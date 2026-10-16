@@ -47,26 +47,33 @@ local function ByName(a, b)
 end
 MacroData.ByName = ByName
 
--- Returns an A->Z sorted array of { index, name, icon, body } for the tab.
--- `index` is the actual API index (base + slot); it shifts after any
--- create/edit/delete, so re-read this list on UPDATE_MACROS rather than
--- caching indices.
-function MacroData.GetMacros(tab)
+-- Iterates every existing macro in `tab` (raw slot order), calling
+-- fn(actualIndex, name, icon, body). `index` is the actual API index
+-- (base + slot). If fn returns a non-nil value, iteration stops and that
+-- value is returned; otherwise returns nil. Empty slots are skipped.
+local function ForEachMacro(tab, fn)
 	local base = MacroData.GetRange(tab)
 	local used = MacroData.GetUsed(tab)
-	local list = {}
 	for slot = 1, used do
 		local actualIndex = base + slot
 		local name, icon, body = GetMacroInfo(actualIndex)
 		if name then
-			list[#list + 1] = {
-				index = actualIndex,
-				name = name,
-				icon = icon,
-				body = body,
-			}
+			local result = fn(actualIndex, name, icon, body)
+			if result ~= nil then
+				return result
+			end
 		end
 	end
+end
+
+-- Returns an A->Z sorted array of { index, name, icon, body } for the tab.
+-- Indices shift after any create/edit/delete, so re-read this list on
+-- UPDATE_MACROS rather than caching indices.
+function MacroData.GetMacros(tab)
+	local list = {}
+	ForEachMacro(tab, function(index, name, icon, body)
+		list[#list + 1] = { index = index, name = name, icon = icon, body = body }
+	end)
 	sort(list, ByName)
 	return list
 end
@@ -78,16 +85,11 @@ function MacroData.FindBySnapshot(tab, snap)
 	if not snap then
 		return nil
 	end
-	local base = MacroData.GetRange(tab)
-	local used = MacroData.GetUsed(tab)
-	for slot = 1, used do
-		local actualIndex = base + slot
-		local name, icon, body = GetMacroInfo(actualIndex)
+	return ForEachMacro(tab, function(index, name, icon, body)
 		if name == snap.name and icon == snap.icon and body == snap.body then
-			return actualIndex
+			return index
 		end
-	end
-	return nil
+	end)
 end
 
 -- Lowercase and strip all whitespace, so "h pot" and "hpot" behave the same.

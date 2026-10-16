@@ -47,17 +47,12 @@ function Editor:IsDirty()
 	return d.name ~= name or d.icon ~= icon or d.body ~= body
 end
 
--- Live name editing, synced both ways with the icon picker's name box.
+-- Live name editing: the name box's own OnTextChanged drives this.
 function Editor:OnNameTyped(text)
-	if self.syncingName or not self.draft then
+	if not self.draft then
 		return
 	end
 	self.draft.name = text
-	self.syncingName = true
-	if self.nameBox:GetText() ~= text then
-		self.nameBox:SetText(text)
-	end
-	self.syncingName = false
 	self:OnDraftChanged()
 end
 
@@ -92,7 +87,7 @@ function Editor:UpdateCounters()
 	if bodyLen >= BODY_WARN then
 		self.bodyCount:SetTextColor(1, 0.54, 0.41)
 	else
-		self.bodyCount:SetTextColor(0.72, 0.67, 0.54)
+		ns.SetMutedText(self.bodyCount)
 	end
 end
 
@@ -235,7 +230,7 @@ function Editor:Create(parent)
 	local icon = area:CreateTexture(nil, "ARTWORK")
 	icon:SetSize(58, 58)
 	icon:SetPoint("TOPLEFT", area, "TOPLEFT", 4, -4)
-	icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	ns.TrimIcon(icon)
 	self.icon = icon
 
 	-- Name label + counter.
@@ -261,15 +256,12 @@ function Editor:Create(parent)
 	ns.RegisterEditBox(nameBox)
 
 	-- Change Name/Icon button toggles the icon picker.
-	local changeButton = CreateFrame("Button", nil, area, "UIPanelButtonTemplate")
-	changeButton:SetSize(150, 22)
-	changeButton:SetPoint("TOPLEFT", nameBox, "BOTTOMLEFT", -6, -6)
-	changeButton:SetText("Change Icon")
-	changeButton:SetScript("OnClick", function()
+	local changeButton = ns.CreateButton(area, "Change Icon", 150, 22, function()
 		if ns.IconPicker then
 			ns.IconPicker:Toggle()
 		end
 	end)
+	changeButton:SetPoint("TOPLEFT", nameBox, "BOTTOMLEFT", -6, -6)
 	ns.SetTooltip(changeButton, "Pick an icon for this macro.")
 	self.changeButton = changeButton
 
@@ -307,19 +299,13 @@ function Editor:Create(parent)
 	ns.SetTooltip(run, "Run this macro now, even if it isn't saved.", true)
 	self.run = run
 
-	local cancelButton = CreateFrame("Button", nil, area, "UIPanelButtonTemplate")
-	cancelButton:SetSize(78, 22)
+	local cancelButton = ns.CreateButton(area, "Cancel", 78, 22, function() Editor:Cancel() end)
 	cancelButton:SetPoint("BOTTOMRIGHT", area, "BOTTOMRIGHT", -6, 4)
-	cancelButton:SetText("Cancel")
-	cancelButton:SetScript("OnClick", function() Editor:Cancel() end)
 	ns.SetTooltip(cancelButton, "Discard unsaved changes.")
 	self.cancelButton = cancelButton
 
-	local saveButton = CreateFrame("Button", nil, area, "UIPanelButtonTemplate")
-	saveButton:SetSize(78, 22)
+	local saveButton = ns.CreateButton(area, "Save", 78, 22, function() Editor:Save() end)
 	saveButton:SetPoint("RIGHT", cancelButton, "LEFT", -6, 0)
-	saveButton:SetText("Save")
-	saveButton:SetScript("OnClick", function() Editor:Save() end)
 	ns.SetTooltip(saveButton, "Save changes to this macro.", true)
 	self.saveButton = saveButton
 
