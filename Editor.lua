@@ -265,18 +265,19 @@ function Editor:Create(parent)
 	ns.SetTooltip(changeButton, "Pick an icon for this macro.")
 	self.changeButton = changeButton
 
-	-- Body label + counter (below the icon / name column).
+	-- Body label + counter. The counter sits on its own line under the label
+	-- so the narrower editor pane has room for it.
 	local bodyLabel = area:CreateFontString(nil, "ARTWORK", "GameFontNormal")
 	bodyLabel:SetPoint("TOPLEFT", area, "TOPLEFT", 4, -92)
 	bodyLabel:SetText("Enter Macro Commands")
 
 	local bodyCount = area:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-	bodyCount:SetPoint("BOTTOMRIGHT", bodyLabel, "BOTTOMRIGHT", 0, 0)
-	bodyCount:SetPoint("RIGHT", area, "RIGHT", -6, 0)
-	bodyCount:SetJustifyH("RIGHT")
+	bodyCount:SetPoint("TOPLEFT", bodyLabel, "BOTTOMLEFT", 0, -3)
+	bodyCount:SetJustifyH("LEFT")
 	self.bodyCount = bodyCount
 
-	-- Bottom row: Run (left), unsaved label, Save + Cancel (right).
+	-- Bottom row: Run (left), Save + Cancel (right); the unsaved label sits on
+	-- its own line just above Save/Cancel so it isn't cramped at this width.
 	-- Run is a SecureActionButton. It is parented to UIParent (NOT the window)
 	-- and only anchored over the window's Run slot, so the window itself stays
 	-- unprotected and can open/close/move in combat. Its own visibility is
@@ -310,19 +311,17 @@ function Editor:Create(parent)
 	self.saveButton = saveButton
 
 	local unsavedLabel = area:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	unsavedLabel:SetPoint("LEFT", run, "RIGHT", 10, 0)
-	unsavedLabel:SetPoint("RIGHT", saveButton, "LEFT", -8, 0)
-	unsavedLabel:SetPoint("BOTTOM", saveButton, "BOTTOM", 0, 0)
+	unsavedLabel:SetPoint("BOTTOMRIGHT", cancelButton, "TOPRIGHT", 0, 6)
 	unsavedLabel:SetJustifyH("RIGHT")
 	unsavedLabel:SetText("|cffd9b84aUnsaved changes|r")
 	unsavedLabel:Hide()
 	self.unsavedLabel = unsavedLabel
 
-	-- Body input (scrolling, multi-line) between label and bottom row.
+	-- Body input (scrolling, multi-line) between the counter and the bottom row.
 	local body = CreateFrame("ScrollFrame", nil, area, "InputScrollFrameTemplate")
-	body:SetPoint("TOPLEFT", bodyLabel, "BOTTOMLEFT", 6, -8)
+	body:SetPoint("TOPLEFT", bodyCount, "BOTTOMLEFT", 6, -6)
 	body:SetPoint("RIGHT", area, "RIGHT", -16, 0)
-	body:SetPoint("BOTTOM", saveButton, "TOP", 0, 10)
+	body:SetPoint("BOTTOM", unsavedLabel, "TOP", 0, 4)
 	body.CharCount:Hide()
 	body.EditBox:SetMaxLetters(BODY_MAX)
 	-- Keep the multi-line edit box width in sync so text wraps correctly;

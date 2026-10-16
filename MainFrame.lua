@@ -19,8 +19,9 @@ local StaticPopup_Show = StaticPopup_Show
 local MacroData = ns.MacroData
 
 local MAIN_FRAME_NAME = "ExtendedMacroUIFrame"
--- Kept well under 2x Blizzard's 338-wide macro frame; macros are short.
-local MAIN_WIDTH, MAIN_HEIGHT = 600, 424
+-- Sized so the editor pane's body box (~286) matches Blizzard's native macro
+-- editor, with the left list pane added alongside it.
+local MAIN_WIDTH, MAIN_HEIGHT = 552, 424
 local LEFT_PANE_WIDTH = 200
 local ROW_HEIGHT = 24
 local SCROLLBAR_WIDTH = 24
