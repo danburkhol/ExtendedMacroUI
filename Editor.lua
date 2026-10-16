@@ -59,6 +59,9 @@ function Editor:SetActive(active)
 		if ns.IconPicker then
 			ns.IconPicker:Close()
 		end
+		if ns.MacroBuilder then
+			ns.MacroBuilder:Close()
+		end
 		self:UpdateRun()
 	end
 end
@@ -191,6 +194,9 @@ function Editor:LoadMacro(index)
 		if ns.IconPicker then
 			ns.IconPicker:Close()
 		end
+		if ns.MacroBuilder then
+			ns.MacroBuilder:Close()
+		end
 		return
 	end
 
@@ -247,6 +253,28 @@ function Editor:Cancel()
 	end
 end
 
+-- Appends a command as a new line to the draft body (used by the Macro
+-- Builder). Setting the edit box text fires its OnTextChanged, which updates
+-- the draft, dirty state and the list dot. Refuses if it would exceed the
+-- 255-char macro limit, rather than silently truncating.
+function Editor:InsertBodyLine(line)
+	if not self.draft then
+		ns.Print("Select or create a macro first.")
+		return
+	end
+	local body = self.draft.body or ""
+	if body ~= "" and body:sub(-1) ~= "\n" then
+		body = body .. "\n"
+	end
+	local newBody = body .. line
+	if #newBody > BODY_MAX then
+		ns.Print("That line won't fit -- the macro is near the 255-character limit.")
+		return
+	end
+	self.body.EditBox:SetText(newBody)
+	self.body.EditBox:SetCursorPosition(#newBody)
+end
+
 function Editor:FocusName()
 	if self.nameBox:IsShown() then
 		self.nameBox:SetFocus()
@@ -292,15 +320,27 @@ function Editor:Create(parent)
 	self.nameBox = nameBox
 	ns.RegisterEditBox(nameBox)
 
-	-- Change Name/Icon button toggles the icon picker.
-	local changeButton = ns.CreateButton(area, "Change Icon", 150, 22, function()
+	-- Change Name/Icon button toggles the icon picker. Anchored to the pane's
+	-- left edge (not under the indented name box) so the two buttons fit the
+	-- narrow editor pane without overflowing.
+	local changeButton = ns.CreateButton(area, "Change Icon", 128, 22, function()
 		if ns.IconPicker then
 			ns.IconPicker:Toggle()
 		end
 	end)
-	changeButton:SetPoint("TOPLEFT", nameBox, "BOTTOMLEFT", -6, -6)
+	changeButton:SetPoint("TOPLEFT", area, "TOPLEFT", 4, -68)
 	ns.SetTooltip(changeButton, "Pick an icon for this macro.")
 	self.changeButton = changeButton
+
+	-- Macro Builder button (right of Change Icon) toggles the builder side panel.
+	local builderButton = ns.CreateButton(area, "Macro Builder", 128, 22, function()
+		if ns.MacroBuilder then
+			ns.MacroBuilder:Toggle()
+		end
+	end)
+	builderButton:SetPoint("LEFT", changeButton, "RIGHT", 6, 0)
+	ns.SetTooltip(builderButton, "Build a /cast or /use command and insert it into this macro.")
+	self.builderButton = builderButton
 
 	-- Body label + counter. The counter sits on its own line under the label
 	-- so the narrower editor pane has room for it.

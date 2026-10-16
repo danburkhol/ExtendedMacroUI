@@ -394,6 +394,9 @@ function MainFrame:Create()
 		if ns.IconPicker then
 			ns.IconPicker:Close()
 		end
+		if ns.MacroBuilder then
+			ns.MacroBuilder:Close()
+		end
 	end)
 	frame:SetScript("OnEvent", function(_, event)
 		if event == "UPDATE_MACROS" then

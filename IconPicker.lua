@@ -196,6 +196,10 @@ function IconPicker:Open()
 	if not draft then
 		return
 	end
+	-- The macro builder shares the dock slot; only one side panel at a time.
+	if ns.MacroBuilder then
+		ns.MacroBuilder:Close()
+	end
 	self.selectedIcon = draft.icon
 	self.preview:SetTexture(draft.icon)
 	self:RefreshGrid()

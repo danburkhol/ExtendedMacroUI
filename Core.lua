@@ -435,6 +435,14 @@ local function Initialize()
 		ns.Print("Icon picker failed to load: " .. tostring(err))
 	end
 
+	-- Same isolation for the macro builder side panel.
+	local okBuilder, errBuilder = pcall(function()
+		ns.MacroBuilder:Create()
+	end)
+	if not okBuilder then
+		ns.Print("Macro builder failed to load: " .. tostring(errBuilder))
+	end
+
 	-- If Blizzard's macro UI is already loaded, add our EMU button now;
 	-- otherwise the loader adds it when Blizzard_MacroUI loads.
 	EnsureNativeButton()
