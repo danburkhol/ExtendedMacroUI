@@ -17,6 +17,7 @@ local GetMacroInfo = GetMacroInfo
 local StaticPopup_Show = StaticPopup_Show
 
 local MacroData = ns.MacroData
+local Messages = ns.Messages
 
 local MAIN_FRAME_NAME = "ExtendedMacroUIFrame"
 -- Sized so the editor pane's body box (~286) matches Blizzard's native macro
@@ -26,6 +27,9 @@ local LEFT_PANE_WIDTH = 200
 local ROW_HEIGHT = 24
 local SCROLLBAR_WIDTH = 24
 local QUESTION_MARK_ICON = 134400
+
+-- A third tab id alongside MacroData.ACCOUNT / MacroData.CHARACTER.
+local MESSAGES = "messages"
 
 local MainFrame = {}
 ns.MainFrame = MainFrame
@@ -41,8 +45,19 @@ StaticPopupDialogs["EXTENDEDMACROUI_CONFIRM_DELETE"] = {
 	showAlert = 1,
 }
 
+StaticPopupDialogs["EXTENDEDMACROUI_CONFIRM_DELETE_MSG"] = {
+	text = "Delete saved message \"%s\"?",
+	button1 = "Delete",
+	button2 = "Cancel",
+	OnAccept = function() MainFrame:DoDeleteMessage() end,
+	timeout = 0,
+	whileDead = 1,
+	hideOnEscape = 1,
+	showAlert = 1,
+}
+
 StaticPopupDialogs["EXTENDEDMACROUI_UNSAVED"] = {
-	text = "You have unsaved changes to this macro.",
+	text = "You have unsaved changes.",
 	button1 = "Save",
 	button2 = "Cancel",
 	button3 = "Discard",
@@ -54,20 +69,39 @@ StaticPopupDialogs["EXTENDEDMACROUI_UNSAVED"] = {
 	hideOnEscape = 1,
 }
 
--- Current tab, the selected actual-index per tab, and the shared search
--- query (one box, persists across tabs).
+-- Current tab, the selected key per tab (macro index, or message id), and the
+-- shared search query (one box, persists across tabs).
 local state = {
 	tab = MacroData.ACCOUNT,
-	selected = { account = nil, character = nil },
+	selected = { account = nil, character = nil, messages = nil },
 	query = "",
 }
 MainFrame.state = state
 
+-- Which PanelTemplates tab number each tab id maps to.
+local TAB_INDEX = {
+	[MacroData.ACCOUNT] = 1,
+	[MacroData.CHARACTER] = 2,
+	[MESSAGES] = 3,
+}
+
+function MainFrame:IsMessages()
+	return state.tab == MESSAGES
+end
+
+-- The editor that currently owns the right pane.
+function MainFrame:ActiveEditor()
+	if self:IsMessages() then
+		return ns.MessageEditor
+	end
+	return ns.Editor
+end
+
 local HIGHLIGHT_START = "|cffffd100"
 local HIGHLIGHT_END = "|r"
 
--- Returns the macro name with any "|" escaped and matched runs wrapped in
--- gold color codes. `hits` is a list of matched byte positions, or nil.
+-- Returns the name with any "|" escaped and matched runs wrapped in gold color
+-- codes. `hits` is a list of matched byte positions, or nil.
 local function BuildName(name, hits)
 	if not hits or #hits == 0 then
 		return (name:gsub("|", "||"))
@@ -93,6 +127,31 @@ local function BuildName(name, hits)
 		out[#out + 1] = HIGHLIGHT_END
 	end
 	return table.concat(out)
+end
+
+--------------------------------------------------------------------------------
+-- Items
+--------------------------------------------------------------------------------
+
+-- A fresh, unfiltered list of { key, name, icon?, index?, body? } for the
+-- current tab. Macro items carry index/icon/body for snapshots and editing;
+-- message items carry only key (= id) and name (no icon). Items are rebuilt
+-- each refresh, so the fuzzy filter's transient .hits never touch stored data.
+function MainFrame:CurrentItems()
+	if self:IsMessages() then
+		return Messages.ListItems()
+	end
+	local items = {}
+	for _, m in ipairs(MacroData.GetMacros(state.tab)) do
+		items[#items + 1] = {
+			key = m.index,
+			name = m.name,
+			icon = m.icon,
+			index = m.index,
+			body = m.body,
+		}
+	end
+	return items
 end
 
 --------------------------------------------------------------------------------
@@ -130,11 +189,8 @@ end
 -- List rows
 --------------------------------------------------------------------------------
 
-local function IsRowSelected(index)
-	return index == state.selected[state.tab]
-end
-
--- One-time region creation + per-bind data update for a list row.
+-- One-time region creation + per-bind data update for a list row. The icon is
+-- shown only when the item has one (macros do, messages don't).
 local function InitRow(button, data)
 	if not button.created then
 		button.created = true
@@ -158,22 +214,32 @@ local function InitRow(button, data)
 		button.Dirty:SetText("|cffffd100\226\128\162|r") -- bullet
 
 		button.Name = button:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		button.Name:SetPoint("LEFT", button.Icon, "RIGHT", 7, 0)
-		button.Name:SetPoint("RIGHT", button.Dirty, "LEFT", -2, 0)
 		button.Name:SetJustifyH("LEFT")
 		button.Name:SetWordWrap(false)
 
 		button:SetScript("OnClick", function(self)
-			MainFrame:SelectMacro(self.macroData)
+			MainFrame:SelectItem(self.itemData)
 		end)
 	end
 
-	button.macroData = data
-	button.macroIndex = data.index
-	button.Icon:SetTexture(data.icon)
+	button.itemData = data
+	button.itemKey = data.key
+
+	button.Name:ClearAllPoints()
+	if data.icon then
+		button.Icon:Show()
+		button.Icon:SetTexture(data.icon)
+		button.Name:SetPoint("LEFT", button.Icon, "RIGHT", 7, 0)
+	else
+		button.Icon:Hide()
+		button.Name:SetPoint("LEFT", button, "LEFT", 8, 0)
+	end
+	button.Name:SetPoint("RIGHT", button.Dirty, "LEFT", -2, 0)
 	button.Name:SetText(BuildName(data.name, data.hits))
-	button.Selected:SetShown(IsRowSelected(data.index))
-	button.Dirty:SetShown(data.index == ns.Editor:GetEditingIndex() and ns.Editor:IsDirty())
+
+	local editor = MainFrame:ActiveEditor()
+	button.Selected:SetShown(data.key == state.selected[state.tab])
+	button.Dirty:SetShown(data.key == editor:GetEditingKey() and editor:IsDirty())
 end
 
 --------------------------------------------------------------------------------
@@ -194,8 +260,11 @@ function MainFrame:CreateTabs(frame)
 	self.tab2 = MakeTab(2, function() MainFrame:SelectTab(MacroData.CHARACTER) end)
 	self.tab2:SetPoint("LEFT", self.tab1, "RIGHT", 0, 0)
 
-	frame.Tabs = { self.tab1, self.tab2 }
-	PanelTemplates_SetNumTabs(frame, 2)
+	self.tab3 = MakeTab(3, function() MainFrame:SelectTab(MESSAGES) end)
+	self.tab3:SetPoint("LEFT", self.tab2, "RIGHT", 0, 0)
+
+	frame.Tabs = { self.tab1, self.tab2, self.tab3 }
+	PanelTemplates_SetNumTabs(frame, 3)
 	PanelTemplates_SetTab(frame, 1)
 end
 
@@ -226,14 +295,14 @@ function MainFrame:CreateListPane(frame)
 	ns.RegisterEditBox(search)
 
 	-- Bottom row: New / Delete buttons on the right, count on the left.
-	local deleteButton = ns.CreateButton(pane, "Delete", 64, 22, function() MainFrame:DeleteSelected() end)
+	local deleteButton = ns.CreateButton(pane, "Delete", 64, 22, function() MainFrame:DeleteItem() end)
 	deleteButton:SetPoint("BOTTOMRIGHT", pane, "BOTTOMRIGHT", 0, 0)
-	ns.SetTooltip(deleteButton, "Delete the selected macro.", true)
+	ns.SetTooltip(deleteButton, "Delete the selected entry.", true)
 	self.deleteButton = deleteButton
 
-	local newButton = ns.CreateButton(pane, "New", 64, 22, function() MainFrame:NewMacro() end)
+	local newButton = ns.CreateButton(pane, "New", 64, 22, function() MainFrame:NewItem() end)
 	newButton:SetPoint("RIGHT", deleteButton, "LEFT", -4, 0)
-	ns.SetTooltip(newButton, "Create a new macro in this tab.", true)
+	ns.SetTooltip(newButton, "Create a new entry in this tab.", true)
 	self.newButton = newButton
 
 	-- Footer count label.
@@ -305,7 +374,7 @@ function MainFrame:Create()
 		f:RegisterEvent("PLAYER_REGEN_DISABLED")
 		f:RegisterEvent("PLAYER_REGEN_ENABLED")
 		MainFrame:Refresh()
-		ns.Editor:LoadMacro(state.selected[state.tab])
+		MainFrame:ActiveEditor():LoadItem(state.selected[state.tab])
 		MainFrame:UpdateButtons()
 	end)
 	frame:SetScript("OnHide", function(f)
@@ -334,7 +403,23 @@ function MainFrame:Create()
 	self:CreateListPane(frame)
 	self:CreateEditorPane(frame)
 
+	-- Shared "unsaved changes" notice for whichever editor is active, in the
+	-- window's bottom footer so it never overlaps an editor's text or buttons.
+	local dirtyFooter = frame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	dirtyFooter:SetPoint("BOTTOM", frame, "BOTTOM", 0, 5)
+	dirtyFooter:SetText("|cffd9b84aUnsaved changes|r")
+	dirtyFooter:Hide()
+	self.dirtyFooter = dirtyFooter
+
 	return frame
+end
+
+-- Shows the footer "unsaved changes" notice when the active editor is dirty.
+function MainFrame:UpdateDirtyIndicator()
+	if not self.dirtyFooter then
+		return
+	end
+	self.dirtyFooter:SetShown(self:ActiveEditor():IsDirty())
 end
 
 function MainFrame:CreateEditorPane(frame)
@@ -343,7 +428,10 @@ function MainFrame:CreateEditorPane(frame)
 	right:SetPoint("TOPLEFT", self.listPane, "TOPRIGHT", 12, -2)
 	right:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -10, 8)
 	self.editorPane = right
+	-- Both editors share the same pane; only the active tab's editor is shown.
 	ns.Editor:Create(right)
+	ns.MessageEditor:Create(right)
+	ns.MessageEditor:SetActive(false)
 end
 
 --------------------------------------------------------------------------------
@@ -355,14 +443,22 @@ function MainFrame:UpdateTabLabels()
 	local _, accMax = MacroData.GetRange(MacroData.ACCOUNT)
 	local _, charMax = MacroData.GetRange(MacroData.CHARACTER)
 	self.tab1:SetText(("General Macros  %d/%d"):format(accUsed, accMax))
-	self.tab2:SetText(("Character Specific Macros  %d/%d"):format(charUsed, charMax))
+	self.tab2:SetText(("Character Macros  %d/%d"):format(charUsed, charMax))
+	self.tab3:SetText(("Saved Messages  %d"):format(#Messages.All()))
 	PanelTemplates_TabResize(self.tab1, 10)
 	PanelTemplates_TabResize(self.tab2, 10)
+	PanelTemplates_TabResize(self.tab3, 10)
 end
 
 function MainFrame:UpdateFooter(shown, total, hasQuery)
 	if hasQuery then
 		self.footer:SetText(("Showing %d of %d"):format(shown, total))
+	elseif self:IsMessages() then
+		if total == 1 then
+			self.footer:SetText("1 saved message")
+		else
+			self.footer:SetText(("%d saved messages"):format(total))
+		end
 	else
 		local _, max = MacroData.GetRange(state.tab)
 		self.footer:SetText(("%d of %d slots used"):format(total, max))
@@ -371,11 +467,12 @@ end
 
 function MainFrame:UpdateEmptyState(shown, total, hasQuery)
 	if total == 0 then
-		self.emptyText:SetText("No macros in this tab yet.")
+		self.emptyText:SetText(self:IsMessages() and "No saved messages yet." or "No macros in this tab yet.")
 		self.emptyText:Show()
 	elseif shown == 0 and hasQuery then
 		local q = (state.query or ""):gsub("|", "||")
-		self.emptyText:SetText(("No macros match \"%s\"."):format(q))
+		local noun = self:IsMessages() and "messages" or "macros"
+		self.emptyText:SetText(("No %s match \"%s\"."):format(noun, q))
 		self.emptyText:Show()
 	else
 		self.emptyText:Hide()
@@ -389,24 +486,24 @@ function MainFrame:Refresh()
 		return
 	end
 
-	local macros = MacroData.GetMacros(state.tab)
+	local items = self:CurrentItems()
 
-	-- Re-resolve the selection against all macros (not the filtered view);
-	-- indices may have shifted or been removed.
+	-- Re-resolve the selection against all items (not the filtered view);
+	-- keys may have shifted or been removed.
 	local sel = state.selected[state.tab]
 	local stillExists = false
-	for _, m in ipairs(macros) do
-		if m.index == sel then
+	for _, it in ipairs(items) do
+		if it.key == sel then
 			stillExists = true
 			break
 		end
 	end
 	if not stillExists then
-		state.selected[state.tab] = macros[1] and macros[1].index or nil
+		state.selected[state.tab] = items[1] and items[1].key or nil
 	end
 
-	local total = #macros
-	local filtered = MacroData.Filter(macros, state.query or "")
+	local total = #items
+	local filtered = MacroData.Filter(items, state.query or "")
 	local shown = #filtered
 	local hasQuery = MacroData.NormalizeQuery(state.query or "") ~= ""
 
@@ -422,71 +519,93 @@ function MainFrame:UpdateRowStates()
 	if not self.scrollBox then
 		return
 	end
-	local editingIndex = ns.Editor:GetEditingIndex()
-	local dirty = ns.Editor:IsDirty()
+	local editor = self:ActiveEditor()
+	local editingKey = editor:GetEditingKey()
+	local dirty = editor:IsDirty()
 	local selected = state.selected[state.tab]
 	self.scrollBox:ForEachFrame(function(button)
-		button.Selected:SetShown(button.macroIndex == selected)
-		button.Dirty:SetShown(button.macroIndex == editingIndex and dirty)
+		button.Selected:SetShown(button.itemKey == selected)
+		button.Dirty:SetShown(button.itemKey == editingKey and dirty)
 	end)
+	self:UpdateDirtyIndicator()
 end
 
--- Enables/disables New, Delete, Save, Cancel for the current combat + state.
+-- Enables/disables New, Delete and the active editor's buttons for the current
+-- combat + selection state. Messages have no combat restrictions.
 function MainFrame:UpdateButtons()
 	if not self.newButton then
 		return
 	end
 	local inCombat = InCombatLockdown()
-	local _, max = MacroData.GetRange(state.tab)
-	local used = MacroData.GetUsed(state.tab)
-	self.newButton:SetEnabled(not inCombat and used < max)
-	self.deleteButton:SetEnabled(not inCombat and state.selected[state.tab] ~= nil)
-	ns.Editor:UpdateButtons(inCombat)
+	if self:IsMessages() then
+		self.newButton:SetEnabled(true)
+		self.deleteButton:SetEnabled(state.selected[MESSAGES] ~= nil)
+		ns.MessageEditor:UpdateButtons(inCombat)
+	else
+		local _, max = MacroData.GetRange(state.tab)
+		local used = MacroData.GetUsed(state.tab)
+		self.newButton:SetEnabled(not inCombat and used < max)
+		self.deleteButton:SetEnabled(not inCombat and state.selected[state.tab] ~= nil)
+		ns.Editor:UpdateButtons(inCombat)
+	end
+	self:UpdateDirtyIndicator()
 end
 
-function MainFrame:SetSelectedIndex(index)
-	state.selected[state.tab] = index
+function MainFrame:SetSelectedKey(key)
+	state.selected[state.tab] = key
 end
 
-function MainFrame:DoSelectIndex(index)
-	state.selected[state.tab] = index
-	ns.Editor:LoadMacro(index)
+function MainFrame:DoSelectKey(key)
+	state.selected[state.tab] = key
+	self:ActiveEditor():LoadItem(key)
 	self:UpdateRowStates()
 	self:UpdateButtons()
 end
 
 -- Row click: guard against losing unsaved edits before switching.
-function MainFrame:SelectMacro(data)
-	local targetIndex = data and data.index or nil
-	if targetIndex == ns.Editor:GetEditingIndex() then
+function MainFrame:SelectItem(data)
+	local key = data and data.key or nil
+	local editor = self:ActiveEditor()
+	if key == editor:GetEditingKey() then
 		return
 	end
-	if ns.Editor:IsDirty() then
+	if editor:IsDirty() then
 		self.pending = {
 			kind = "select",
-			index = targetIndex,
-			snap = data and { name = data.name, icon = data.icon, body = data.body } or nil,
+			key = key,
+			-- Macros reindex on save, so capture a snapshot to re-resolve the
+			-- target afterward. Messages have stable ids and need none.
+			snap = (not self:IsMessages()) and data
+				and { name = data.name, icon = data.icon, body = data.body } or nil,
 		}
 		StaticPopup_Show("EXTENDEDMACROUI_UNSAVED")
 		return
 	end
-	self:DoSelectIndex(targetIndex)
+	self:DoSelectKey(key)
 end
 
--- Selects the first macro in the current filtered view (Enter in search).
+-- Selects the first item in the current filtered view (Enter in search).
 function MainFrame:SelectFirstResult()
-	local macros = MacroData.GetMacros(state.tab)
-	local filtered = MacroData.Filter(macros, state.query or "")
+	local filtered = MacroData.Filter(self:CurrentItems(), state.query or "")
 	if filtered[1] then
-		self:SelectMacro(filtered[1])
+		self:SelectItem(filtered[1])
 	end
 end
 
 function MainFrame:DoSelectTab(tab)
+	local oldEditor = self:ActiveEditor()
 	state.tab = tab
-	PanelTemplates_SetTab(self.frame, tab == MacroData.CHARACTER and 2 or 1)
+	PanelTemplates_SetTab(self.frame, TAB_INDEX[tab])
+	self.frame:SetTitle(self:IsMessages() and "Saved Messages" or "Create Macros")
+
+	local newEditor = self:ActiveEditor()
+	if oldEditor ~= newEditor then
+		oldEditor:SetActive(false)
+		newEditor:SetActive(true)
+	end
+
 	self:Refresh()
-	ns.Editor:LoadMacro(state.selected[state.tab])
+	newEditor:LoadItem(state.selected[state.tab])
 	self:UpdateButtons()
 end
 
@@ -494,13 +613,35 @@ function MainFrame:SelectTab(tab)
 	if state.tab == tab then
 		return
 	end
-	if ns.Editor:IsDirty() then
+	if self:ActiveEditor():IsDirty() then
 		self.pending = { kind = "selecttab", tab = tab }
 		StaticPopup_Show("EXTENDEDMACROUI_UNSAVED")
 		return
 	end
 	self:DoSelectTab(tab)
 end
+
+--------------------------------------------------------------------------------
+-- New / Delete (routed to the active tab's kind)
+--------------------------------------------------------------------------------
+
+function MainFrame:NewItem()
+	if self:IsMessages() then
+		self:NewMessage()
+	else
+		self:NewMacro()
+	end
+end
+
+function MainFrame:DeleteItem()
+	if self:IsMessages() then
+		self:DeleteMessage()
+	else
+		self:DeleteSelected()
+	end
+end
+
+-- Macros ----------------------------------------------------------------------
 
 function MainFrame:DoNewMacro()
 	if InCombatLockdown() then
@@ -567,6 +708,53 @@ function MainFrame:DeleteSelected()
 	StaticPopup_Show("EXTENDEDMACROUI_CONFIRM_DELETE", name)
 end
 
+-- Messages --------------------------------------------------------------------
+
+function MainFrame:DoNewMessage()
+	local msg = Messages.New()
+	state.selected[MESSAGES] = msg.id
+	state.query = ""
+	self.search:SetText("")
+	self:Refresh()
+	ns.MessageEditor:LoadItem(msg.id)
+	self:UpdateButtons()
+	ns.MessageEditor:FocusName()
+end
+
+function MainFrame:NewMessage()
+	if ns.MessageEditor:IsDirty() then
+		self.pending = { kind = "new" }
+		StaticPopup_Show("EXTENDEDMACROUI_UNSAVED")
+		return
+	end
+	self:DoNewMessage()
+end
+
+function MainFrame:DoDeleteMessage()
+	local id = state.selected[MESSAGES]
+	if not id then
+		return
+	end
+	Messages.Delete(id)
+	state.selected[MESSAGES] = nil
+	self:Refresh()
+	ns.MessageEditor:LoadItem(state.selected[MESSAGES])
+	self:UpdateButtons()
+end
+
+function MainFrame:DeleteMessage()
+	local id = state.selected[MESSAGES]
+	if not id then
+		return
+	end
+	local msg = Messages.GetById(id)
+	StaticPopup_Show("EXTENDEDMACROUI_CONFIRM_DELETE_MSG", msg and msg.name or "")
+end
+
+--------------------------------------------------------------------------------
+-- Unsaved-changes resolution
+--------------------------------------------------------------------------------
+
 -- Carries out the action that was blocked by an unsaved-changes prompt.
 function MainFrame:ResolvePending(action)
 	local pending = self.pending
@@ -576,18 +764,26 @@ function MainFrame:ResolvePending(action)
 	end
 
 	if action == "save" then
-		ns.Editor:Save()
+		-- If the save can't proceed (blank/duplicate name, or combat), keep the
+		-- edits and abort rather than discarding them by continuing the action.
+		if not self:ActiveEditor():Save() then
+			return
+		end
 	end
 
 	if pending.kind == "new" then
-		self:DoNewMacro()
+		if self:IsMessages() then
+			self:DoNewMessage()
+		else
+			self:DoNewMacro()
+		end
 	elseif pending.kind == "selecttab" then
 		self:DoSelectTab(pending.tab)
 	else -- select
-		local index = pending.index
+		local key = pending.key
 		if action == "save" and pending.snap then
-			index = MacroData.FindBySnapshot(state.tab, pending.snap) or pending.index
+			key = MacroData.FindBySnapshot(state.tab, pending.snap) or pending.key
 		end
-		self:DoSelectIndex(index)
+		self:DoSelectKey(key)
 	end
 end

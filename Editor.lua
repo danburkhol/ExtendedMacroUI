@@ -15,9 +15,12 @@ ns.Editor = Editor
 
 -- index: the actual macro index currently open (nil = nothing selected).
 -- draft: { name, icon, body } pending edits.
+-- active: whether this editor currently owns the editor pane (a macro tab is
+--   selected). Starts true since a macro tab is the default.
 Editor.index = nil
 Editor.draft = nil
 Editor.loading = false
+Editor.active = true
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -33,6 +36,31 @@ end
 
 function Editor:GetEditingIndex()
 	return self.index
+end
+
+-- Common editor interface shared with the message editor (MainFrame drives
+-- both through these): the selection key here is the macro index.
+function Editor:GetEditingKey()
+	return self.index
+end
+
+function Editor:LoadItem(key)
+	return self:LoadMacro(key)
+end
+
+-- Hands the editor pane to (or away from) this editor as macro/message tabs are
+-- selected. When inactive it hides its contents and its secure Run button so
+-- the message editor can take over cleanly.
+function Editor:SetActive(active)
+	self.active = active
+	if not active then
+		self.editArea:Hide()
+		self.prompt:Hide()
+		if ns.IconPicker then
+			ns.IconPicker:Close()
+		end
+		self:UpdateRun()
+	end
 end
 
 function Editor:IsDirty()
@@ -116,7 +144,7 @@ function Editor:UpdateRun()
 	if not self.run then
 		return
 	end
-	local shouldShow = ns.frame and ns.frame:IsShown() and self.index ~= nil
+	local shouldShow = self.active and ns.frame and ns.frame:IsShown() and self.index ~= nil
 	if InCombatLockdown() then
 		self.run:SetAlpha(shouldShow and 1 or 0)
 		self.run:Disable()
@@ -134,7 +162,6 @@ function Editor:UpdateButtons(inCombat)
 	local nameOk = self.draft and not NameIsBlank(self.draft.name)
 	self.saveButton:SetEnabled(dirty and nameOk and not inCombat)
 	self.cancelButton:SetEnabled(dirty) -- revert is local; allowed in combat
-	self.unsavedLabel:SetShown(dirty)
 	self:UpdateRun()
 end
 
@@ -180,24 +207,27 @@ function Editor:LoadMacro(index)
 	end
 end
 
+-- Returns true if the macro was written, false otherwise (blank name or in
+-- combat), so the unsaved-changes prompt can abort instead of discarding edits.
 function Editor:Save()
 	if InCombatLockdown() then
-		return
+		return false
 	end
 	local d = self.draft
 	if not d or not self.index or NameIsBlank(d.name) then
-		return
+		return false
 	end
 
 	local newIndex = EditMacro(self.index, d.name, d.icon, d.body)
 	self.index = newIndex
 	if ns.MainFrame then
-		ns.MainFrame:SetSelectedIndex(newIndex)
+		ns.MainFrame:SetSelectedKey(newIndex)
 	end
 	self:LoadMacro(newIndex)
 	if ns.MainFrame then
 		ns.MainFrame:Refresh()
 	end
+	return true
 end
 
 function Editor:Cancel()
@@ -276,8 +306,8 @@ function Editor:Create(parent)
 	bodyCount:SetJustifyH("LEFT")
 	self.bodyCount = bodyCount
 
-	-- Bottom row: Run (left), Save + Cancel (right); the unsaved label sits on
-	-- its own line just above Save/Cancel so it isn't cramped at this width.
+	-- Bottom row: Run (left), Save + Cancel (right). The unsaved-changes notice
+	-- lives in the shared window footer (MainFrame), not here.
 	-- Run is a SecureActionButton. It is parented to UIParent (NOT the window)
 	-- and only anchored over the window's Run slot, so the window itself stays
 	-- unprotected and can open/close/move in combat. Its own visibility is
@@ -310,18 +340,11 @@ function Editor:Create(parent)
 	ns.SetTooltip(saveButton, "Save changes to this macro.", true)
 	self.saveButton = saveButton
 
-	local unsavedLabel = area:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-	unsavedLabel:SetPoint("BOTTOMRIGHT", cancelButton, "TOPRIGHT", 0, 6)
-	unsavedLabel:SetJustifyH("RIGHT")
-	unsavedLabel:SetText("|cffd9b84aUnsaved changes|r")
-	unsavedLabel:Hide()
-	self.unsavedLabel = unsavedLabel
-
 	-- Body input (scrolling, multi-line) between the counter and the bottom row.
 	local body = CreateFrame("ScrollFrame", nil, area, "InputScrollFrameTemplate")
 	body:SetPoint("TOPLEFT", bodyCount, "BOTTOMLEFT", 6, -6)
 	body:SetPoint("RIGHT", area, "RIGHT", -16, 0)
-	body:SetPoint("BOTTOM", unsavedLabel, "TOP", 0, 4)
+	body:SetPoint("BOTTOM", cancelButton, "TOP", 0, 6)
 	body.CharCount:Hide()
 	body.EditBox:SetMaxLetters(BODY_MAX)
 	-- Keep the multi-line edit box width in sync so text wraps correctly;

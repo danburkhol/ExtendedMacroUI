@@ -3,3 +3,6 @@ design/
 
 # Local clone of Blizzard UI source used only as reference
 wow-ui-source/
+
+# MessageBarker addon kept locally only as a feature reference
+MessageBarker/

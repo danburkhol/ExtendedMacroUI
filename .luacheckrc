@@ -71,6 +71,18 @@ read_globals = {
 	"InCombatLockdown",
 	"UnitName",
 	"C_Timer",
+	-- Chat / saved messages
+	"C_ChatInfo",
+	"GetChannelList",
+	"GetChannelName",
+	"SAY",
+	"YELL",
+	"PARTY",
+	"RAID",
+	"RAID_WARNING",
+	"INSTANCE_CHAT",
+	"GUILD",
+	"OFFICER",
 	-- Native macro window switching
 	"MacroFrame",
 	"ShowUIPanel",

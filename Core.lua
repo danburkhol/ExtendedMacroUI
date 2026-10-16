@@ -83,6 +83,8 @@ local DB_DEFAULTS = {
 	position = nil, -- { point, relPoint, x, y } (free-floating mode only)
 	takeoverMacro = false, -- /macro opens this window instead of Blizzard's
 	lockToPanel = true, -- open as a managed UI panel (like Blizzard's windows)
+	messages = {}, -- saved chat messages (outside the macro system; no slots)
+	nextMessageId = 1, -- monotonic id source for saved messages
 }
 
 local function CopyDefaults(dst, src)
@@ -394,8 +396,18 @@ local function Initialize()
 			ns.Print("Window unlocked; drag it anywhere.")
 		elseif msg == "options" or msg == "config" then
 			ns.OpenOptions()
+		elseif msg == "send" or msg:sub(1, 5) == "send " then
+			-- /emu send <message name> broadcasts a saved message to its
+			-- checked outputs. Matching is case-insensitive.
+			local name = (msg == "send") and "" or msg:sub(6)
+			name = name:gsub("^%s+", ""):gsub("%s+$", "")
+			if name == "" then
+				ns.Print("Usage: /emu send <message name>")
+			elseif not ns.Messages.SendByName(name) then
+				ns.Print("No saved message named \"" .. name .. "\".")
+			end
 		elseif msg == "help" then
-			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro")
+			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro | send <name>")
 		else
 			ns.Toggle()
 		end
