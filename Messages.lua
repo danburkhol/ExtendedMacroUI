@@ -11,9 +11,17 @@ local ADDON_NAME, ns = ...
 -- No UI code lives here.
 
 local C_ChatInfo = C_ChatInfo
+local C_GuildInfo = C_GuildInfo
 local GetChannelList = GetChannelList
 local GetChannelName = GetChannelName
 local GetTime = GetTime
+local IsInGroup = IsInGroup
+local IsInRaid = IsInRaid
+local IsInGuild = IsInGuild
+local UnitIsGroupLeader = UnitIsGroupLeader
+local UnitIsGroupAssistant = UnitIsGroupAssistant
+local HOME = LE_PARTY_CATEGORY_HOME
+local INSTANCE = LE_PARTY_CATEGORY_INSTANCE
 local tinsert = tinsert
 local tremove = tremove
 local strtrim = strtrim
@@ -238,6 +246,30 @@ function Messages.ThrottleRemaining()
 	return remaining > 0 and remaining or 0
 end
 
+-- True if a fixed chat type can currently receive a message, so we don't fire a
+-- doomed send that just floods the player's chat with "You aren't in a party"
+-- and similar errors. Mirrors the eligibility the default chat editbox uses
+-- (ChatFrameEditBoxMixin:ResetChatType), plus explicit raid-warning and officer
+-- permission checks. CHANNEL outputs are gated separately in Send (by whether
+-- the channel is currently joined). SAY/YELL and anything else always attempt.
+local function CanSendFixed(chatType)
+	if chatType == "PARTY" then
+		return IsInGroup(HOME)
+	elseif chatType == "RAID" then
+		return IsInRaid(HOME)
+	elseif chatType == "RAID_WARNING" then
+		-- Raid warnings need a raid and lead/assist, else "You are not promoted".
+		return IsInRaid(HOME) and (UnitIsGroupLeader("player") or UnitIsGroupAssistant("player"))
+	elseif chatType == "INSTANCE_CHAT" then
+		return IsInGroup(INSTANCE)
+	elseif chatType == "GUILD" then
+		return IsInGuild()
+	elseif chatType == "OFFICER" then
+		return IsInGuild() and C_GuildInfo and C_GuildInfo.IsGuildOfficer and C_GuildInfo.IsGuildOfficer() or false
+	end
+	return true
+end
+
 -- Broadcasts a message's content to each of its checked outputs. Only ever
 -- called from a hardware event (a button click or the /emu send command),
 -- which is what the chat API's anti-spam restriction requires. A channel
@@ -265,6 +297,9 @@ function Messages.Send(message)
 		return false
 	end
 
+	-- Only send to outputs that can currently receive the message: a joined
+	-- channel, or a chat type whose precondition is met (CanSendFixed). This
+	-- skips doomed sends instead of spamming chat with their error replies.
 	local sentAny = false
 	for _, output in ipairs(message.outputs) do
 		if output.chatType == "CHANNEL" then
@@ -273,7 +308,7 @@ function Messages.Send(message)
 				C_ChatInfo.SendChatMessage(text, "CHANNEL", nil, id)
 				sentAny = true
 			end
-		else
+		elseif CanSendFixed(output.chatType) then
 			C_ChatInfo.SendChatMessage(text, output.chatType)
 			sentAny = true
 		end
