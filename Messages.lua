@@ -13,13 +13,22 @@ local ADDON_NAME, ns = ...
 local C_ChatInfo = C_ChatInfo
 local GetChannelList = GetChannelList
 local GetChannelName = GetChannelName
+local GetTime = GetTime
 local tinsert = tinsert
 local tremove = tremove
 local strtrim = strtrim
 local sort = table.sort
+local ceil = math.ceil
+
+-- Anti-spam default; the EMU settings slider overrides this (clamped >= 1).
+local DEFAULT_INTERVAL = 15
 
 local Messages = {}
 ns.Messages = Messages
+
+-- GetTime() (seconds, monotonic) of the last send, shared across every message
+-- so the throttle is global. Session-local, which is all anti-spam needs.
+Messages.lastSend = 0
 
 -- Localized label with a readable fallback if the global string is missing.
 local function L(global, fallback)
@@ -212,31 +221,70 @@ end
 -- Sending
 --------------------------------------------------------------------------------
 
+-- The anti-spam interval in seconds (the min gap between any two sends). Driven
+-- by the EMU settings slider; falls back to the default and never drops below 1.
+function Messages.GetInterval()
+	local v = ns.db and ns.db.sendInterval
+	if type(v) ~= "number" then
+		return DEFAULT_INTERVAL
+	end
+	return v < 1 and 1 or v
+end
+
+-- Seconds remaining before another send is allowed, or 0 if one is allowed now.
+function Messages.ThrottleRemaining()
+	local elapsed = GetTime() - (Messages.lastSend or 0)
+	local remaining = Messages.GetInterval() - elapsed
+	return remaining > 0 and remaining or 0
+end
+
 -- Broadcasts a message's content to each of its checked outputs. Only ever
 -- called from a hardware event (a button click or the /emu send command),
 -- which is what the chat API's anti-spam restriction requires. A channel
 -- that isn't currently joined resolves to id 0 and is skipped.
+--
+-- A global throttle (Messages.GetInterval) blocks a send that comes too soon
+-- after the previous one, so no message the addon can send goes out more often
+-- than the configured interval. Returns true if the message was sent, false if
+-- it was empty/targetless or throttled.
 function Messages.Send(message)
 	if not message then
-		return
+		return false
 	end
 	local text = message.content
 	if not text or strtrim(text) == "" then
-		return
+		return false
 	end
 	if not message.outputs then
-		return
+		return false
 	end
+
+	local remaining = Messages.ThrottleRemaining()
+	if remaining > 0 then
+		ns.Print(("Anti-spam: wait %d more second(s) before sending another message."):format(ceil(remaining)))
+		return false
+	end
+
+	local sentAny = false
 	for _, output in ipairs(message.outputs) do
 		if output.chatType == "CHANNEL" then
 			local id = output.channel and GetChannelName(output.channel) or 0
 			if id and id > 0 then
 				C_ChatInfo.SendChatMessage(text, "CHANNEL", nil, id)
+				sentAny = true
 			end
 		else
 			C_ChatInfo.SendChatMessage(text, output.chatType)
+			sentAny = true
 		end
 	end
+
+	-- Only start the cooldown once something actually went out, so a message
+	-- with no joined channels doesn't silently eat the interval.
+	if sentAny then
+		Messages.lastSend = GetTime()
+	end
+	return sentAny
 end
 
 -- Sends the saved message named `name` (case-insensitive). Returns true if a

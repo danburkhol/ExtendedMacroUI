@@ -160,6 +160,7 @@ local DB_DEFAULTS = {
 	lockToPanel = true, -- open as a managed UI panel (like Blizzard's windows)
 	messages = {}, -- saved chat messages (outside the macro system; no slots)
 	nextMessageId = 1, -- monotonic id source for saved messages
+	sendInterval = 15, -- anti-spam: min seconds between any two message sends
 }
 
 local function CopyDefaults(dst, src)
@@ -432,6 +433,31 @@ local function BuildOptions()
 		.. " Extended Macro UI instead of Blizzard's macro window.\n\n"
 		.. "Off (default): /macro opens Blizzard's macro window."
 	Settings.CreateCheckbox(category, takeoverSetting, takeoverTooltip)
+
+	-- Anti-spam: the minimum seconds between any two saved-message sends
+	-- (slider, so the Settings API clamps it to [MIN, MAX]).
+	if Settings.CreateSlider and Settings.CreateSliderOptions then
+		local function GetInterval()
+			return ns.Messages and ns.Messages.GetInterval() or ns.db.sendInterval
+		end
+		local function SetInterval(value)
+			ns.db.sendInterval = value
+		end
+		local intervalSetting = Settings.RegisterProxySetting(category, "EXTENDEDMACROUI_SEND_INTERVAL",
+			Settings.VarType.Number, "Message send interval (anti-spam)",
+			15, GetInterval, SetInterval)
+
+		local options = Settings.CreateSliderOptions(1, 60, 1)
+		options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, function(value)
+			return ("%d sec"):format(value)
+		end)
+
+		local intervalTooltip = "The minimum time between sending saved messages. The addon"
+			.. " won't send any message (via Send Now or /emu send) again until this many"
+			.. " seconds have passed since the last one, to prevent accidental or"
+			.. " intentional spam.\n\nDefault: 15 seconds. Minimum: 1 second."
+		Settings.CreateSlider(category, intervalSetting, options, intervalTooltip)
+	end
 
 	Settings.RegisterAddOnCategory(category)
 	optionsCategory = category

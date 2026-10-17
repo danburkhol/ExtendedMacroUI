@@ -71,6 +71,7 @@ read_globals = {
 	"InCombatLockdown",
 	"UnitName",
 	"C_Timer",
+	"GetTime",
 	-- Chat / saved messages
 	"C_ChatInfo",
 	"GetChannelList",
@@ -107,4 +108,5 @@ read_globals = {
 	"C_AddOns",
 	-- Settings (options panel)
 	"Settings",
+	"MinimalSliderWithSteppersMixin",
 }
