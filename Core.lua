@@ -85,6 +85,22 @@ function ns.IsBlank(text)
 	return not text or strtrim(text) == ""
 end
 
+-- Returns `name .. suffix`, trimming the END of `name` when needed so the result
+-- fits `maxLen`. Duplicating uses this so a name already at the length limit
+-- (e.g. a 16-char macro name) still gets a suffix instead of overflowing.
+function ns.NameWithSuffix(name, suffix, maxLen)
+	name = name or ""
+	suffix = suffix or ""
+	if #name + #suffix <= maxLen then
+		return name .. suffix
+	end
+	local keep = maxLen - #suffix
+	if keep < 0 then
+		keep = 0
+	end
+	return name:sub(1, keep) .. suffix
+end
+
 -- Builds the recessed list container shared by every scrolling list in the
 -- addon: an InsetFrame box holding a WowScrollBoxList and a MinimalScrollBar.
 -- The caller anchors the returned `box`, builds a view (linear or grid) and

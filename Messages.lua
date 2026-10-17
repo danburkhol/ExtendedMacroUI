@@ -33,6 +33,10 @@ local ceil = math.ceil
 local DEFAULT_INTERVAL = 15
 local MIN_INTERVAL = 0.5
 
+-- Matches the message name box's SetMaxLetters; the duplicate suffix is trimmed
+-- to fit this so a long name can still be copied.
+local NAME_MAX = 50
+
 local Messages = {}
 ns.Messages = Messages
 
@@ -117,6 +121,33 @@ function Messages.New(name)
 	local id = db.nextMessageId or 1
 	db.nextMessageId = id + 1
 	local msg = { id = id, name = Messages.UniqueName(name or "New Message"), content = "", outputs = {} }
+	tinsert(db.messages, msg)
+	return msg
+end
+
+-- Creates a copy of message `id` (content + outputs) under a new unique name:
+-- the original name plus a " Copy" suffix, trimmed to fit the length limit, then
+-- made unique (names drive /emu send). Returns the new message, or nil.
+function Messages.Duplicate(id)
+	local src = Messages.GetById(id)
+	if not src then
+		return nil
+	end
+	local base = ns.NameWithSuffix(src.name, " Copy", NAME_MAX)
+	local outputs = {}
+	if src.outputs then
+		for _, o in ipairs(src.outputs) do
+			local entry = { chatType = o.chatType }
+			if o.channel then
+				entry.channel = o.channel
+			end
+			outputs[#outputs + 1] = entry
+		end
+	end
+	local db = ns.db
+	local newId = db.nextMessageId or 1
+	db.nextMessageId = newId + 1
+	local msg = { id = newId, name = Messages.UniqueName(base), content = src.content or "", outputs = outputs }
 	tinsert(db.messages, msg)
 	return msg
 end

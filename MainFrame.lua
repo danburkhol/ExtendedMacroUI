@@ -188,6 +188,26 @@ end
 -- List rows
 --------------------------------------------------------------------------------
 
+-- The inline-texture glyph for the per-row duplicate button (a red square
+-- button in the gear button's style; the tooltip says what it does).
+local DUP_GLYPH = "|TInterface\\PaperDollInfoFrame\\Character-Plus:12:12|t"
+
+-- Shows the hover duplicate button while the row (or the button itself) is
+-- moused over, and tucks the dirty dot away while it's up so they don't overlap
+-- on the right edge.
+local function UpdateDupShown(row)
+	if not row.Dup then
+		return
+	end
+	local over = row.itemData ~= nil and row:IsMouseOver()
+	row.Dup:SetShown(over)
+	if row.Dirty then
+		local editor = MainFrame:ActiveEditor()
+		local dirty = row.itemKey == editor:GetEditingKey() and editor:IsDirty()
+		row.Dirty:SetShown(dirty and not over)
+	end
+end
+
 -- One-time region creation + per-bind data update for a list row. The icon is
 -- shown only when the item has one (macros do, messages don't).
 local function InitRow(button, data)
@@ -213,6 +233,27 @@ local function InitRow(button, data)
 		button:SetScript("OnClick", function(self)
 			MainFrame:SelectItem(self.itemData)
 		end)
+
+		-- Right-justified duplicate button, shown only on hover.
+		local dup = ns.CreateButton(button, DUP_GLYPH, 20, 18)
+		dup:SetPoint("RIGHT", button, "RIGHT", -2, 0)
+		dup:SetMotionScriptsWhileDisabled(true)
+		dup:Hide()
+		dup:SetScript("OnClick", function(self)
+			MainFrame:DuplicateItem(self:GetParent().itemData)
+		end)
+		dup:SetScript("OnEnter", function(self)
+			MainFrame:ShowDupTooltip(self)
+			UpdateDupShown(button)
+		end)
+		dup:SetScript("OnLeave", function()
+			GameTooltip:Hide()
+			UpdateDupShown(button)
+		end)
+		button.Dup = dup
+
+		button:HookScript("OnEnter", function(self) UpdateDupShown(self) end)
+		button:HookScript("OnLeave", function(self) UpdateDupShown(self) end)
 	end
 
 	button.itemData = data
@@ -233,6 +274,8 @@ local function InitRow(button, data)
 	local editor = MainFrame:ActiveEditor()
 	button.Selected:SetShown(data.key == state.selected[state.tab])
 	button.Dirty:SetShown(data.key == editor:GetEditingKey() and editor:IsDirty())
+	button.Dup:SetEnabled(MainFrame:CanDuplicate())
+	UpdateDupShown(button)
 end
 
 --------------------------------------------------------------------------------
@@ -519,9 +562,14 @@ function MainFrame:UpdateRowStates()
 	local editingKey = editor:GetEditingKey()
 	local dirty = editor:IsDirty()
 	local selected = state.selected[state.tab]
+	local canDup = self:CanDuplicate()
 	self.scrollBox:ForEachFrame(function(button)
 		button.Selected:SetShown(button.itemKey == selected)
 		button.Dirty:SetShown(button.itemKey == editingKey and dirty)
+		if button.Dup then
+			button.Dup:SetEnabled(canDup)
+			UpdateDupShown(button)
+		end
 	end)
 	self:UpdateDirtyIndicator()
 end
@@ -545,6 +593,37 @@ function MainFrame:UpdateButtons()
 		ns.Editor:UpdateButtons(inCombat)
 	end
 	self:UpdateDirtyIndicator()
+end
+
+-- Whether a new entry can currently be made in this tab (so the per-row
+-- duplicate button is enabled). Messages have no slot limit; macros need a free
+-- slot and can't be created in combat.
+function MainFrame:CanDuplicate()
+	if self:IsMessages() then
+		return true
+	end
+	if InCombatLockdown() then
+		return false
+	end
+	local _, max = MacroData.GetRange(state.tab)
+	return MacroData.GetUsed(state.tab) < max
+end
+
+-- Tooltip for a row's duplicate button, explaining it and, when it's disabled,
+-- why (combat, or no free macro slot).
+function MainFrame:ShowDupTooltip(dupButton)
+	GameTooltip:SetOwner(dupButton, "ANCHOR_RIGHT")
+	if self:IsMessages() then
+		GameTooltip:AddLine("Duplicate this saved message.", 1, 1, 1, true)
+	elseif InCombatLockdown() then
+		GameTooltip:AddLine("Can't duplicate macros while in combat.", 1, 0.3, 0.3, true)
+	elseif not self:CanDuplicate() then
+		GameTooltip:AddLine("No free macro slots in this tab.", 1, 1, 1, true)
+		GameTooltip:AddLine("Delete a macro to make space before duplicating.", 1, 0.3, 0.3, true)
+	else
+		GameTooltip:AddLine("Duplicate this macro.", 1, 1, 1, true)
+	end
+	GameTooltip:Show()
 end
 
 function MainFrame:SetSelectedKey(key)
@@ -747,6 +826,89 @@ function MainFrame:DeleteMessage()
 	StaticPopup_Show("EXTENDEDMACROUI_CONFIRM_DELETE_MSG", msg and msg.name or "")
 end
 
+-- Duplicate (routed to the active tab's kind) ---------------------------------
+
+function MainFrame:DuplicateItem(data)
+	if not data then
+		return
+	end
+	if self:IsMessages() then
+		self:DuplicateMessage(data.key)
+	else
+		self:DuplicateMacro(data)
+	end
+end
+
+-- Macros ---
+function MainFrame:DoDuplicateMacro(data)
+	if InCombatLockdown() or not data then
+		return
+	end
+	local tab = state.tab
+	local _, max = MacroData.GetRange(tab)
+	if MacroData.GetUsed(tab) >= max then
+		return
+	end
+	-- 16 = the macro name limit; trim the source name so the suffix always fits,
+	-- even when the original is already at the limit. CreateMacro both creates
+	-- and saves, so the copy is persisted immediately.
+	local newName = ns.NameWithSuffix(data.name, " Copy", 16)
+	local newIndex = CreateMacro(newName, data.icon or QUESTION_MARK_ICON, data.body or "", tab == MacroData.CHARACTER)
+	if not newIndex then
+		return
+	end
+	state.selected[tab] = newIndex
+	state.query = ""
+	self.search:SetText("")
+	self:Refresh()
+	ns.Editor:LoadMacro(newIndex)
+	self:UpdateButtons()
+	ns.Editor:FocusName()
+end
+
+function MainFrame:DuplicateMacro(data)
+	if InCombatLockdown() then
+		return
+	end
+	local _, max = MacroData.GetRange(state.tab)
+	if MacroData.GetUsed(state.tab) >= max then
+		return
+	end
+	-- Opening the copy in the editor would drop unsaved edits on the current
+	-- macro, so guard with the same prompt as select/new. The copy is built from
+	-- the captured name/icon/body, so a reindex after "save" doesn't matter.
+	if ns.Editor:IsDirty() then
+		self.pending = { kind = "duplicate", data = { name = data.name, icon = data.icon, body = data.body } }
+		StaticPopup_Show("EXTENDEDMACROUI_UNSAVED")
+		return
+	end
+	self:DoDuplicateMacro(data)
+end
+
+-- Messages ---
+function MainFrame:DoDuplicateMessage(id)
+	local msg = Messages.Duplicate(id)
+	if not msg then
+		return
+	end
+	state.selected[MESSAGES] = msg.id
+	state.query = ""
+	self.search:SetText("")
+	self:Refresh()
+	ns.MessageEditor:LoadItem(msg.id)
+	self:UpdateButtons()
+	ns.MessageEditor:FocusName()
+end
+
+function MainFrame:DuplicateMessage(id)
+	if ns.MessageEditor:IsDirty() then
+		self.pending = { kind = "duplicate", isMessage = true, key = id }
+		StaticPopup_Show("EXTENDEDMACROUI_UNSAVED")
+		return
+	end
+	self:DoDuplicateMessage(id)
+end
+
 --------------------------------------------------------------------------------
 -- Unsaved-changes resolution
 --------------------------------------------------------------------------------
@@ -775,6 +937,12 @@ function MainFrame:ResolvePending(action)
 		end
 	elseif pending.kind == "selecttab" then
 		self:DoSelectTab(pending.tab)
+	elseif pending.kind == "duplicate" then
+		if pending.isMessage then
+			self:DoDuplicateMessage(pending.key)
+		else
+			self:DoDuplicateMacro(pending.data)
+		end
 	else -- select
 		local key = pending.key
 		if action == "save" and pending.snap then
