@@ -408,10 +408,11 @@ function MessageEditor:Create(parent)
 	contentCount:SetJustifyH("LEFT")
 	self.contentCount = contentCount
 
-	-- Content input (scrolling, multi-line), fixed height.
+	-- Content input (scrolling, multi-line), fixed height. Left/right match the
+	-- name box and the output checklist (area +10 / -10) so all three line up.
 	local body = ns.CreateMultilineInput(area, CONTENT_MAX)
-	body:SetPoint("TOPLEFT", contentCount, "BOTTOMLEFT", 6, -6)
-	body:SetPoint("RIGHT", area, "RIGHT", -16, 0)
+	body:SetPoint("TOPLEFT", contentCount, "BOTTOMLEFT", 0, -6)
+	body:SetPoint("RIGHT", area, "RIGHT", -10, 0)
 	body:SetHeight(CONTENT_HEIGHT)
 	body.EditBox:HookScript("OnTextChanged", function(box)
 		if MessageEditor.draft then
@@ -430,9 +431,10 @@ function MessageEditor:Create(parent)
 		nameBox:SetFocus()
 	end)
 
-	-- "Send to:" label above the output checklist.
+	-- "Send to:" label above the output checklist. Aligned with the body's left
+	-- so the checklist box (anchored to this label) keeps the shared +10 edge.
 	local sendToLabel = area:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-	sendToLabel:SetPoint("TOPLEFT", body, "BOTTOMLEFT", -6, -10)
+	sendToLabel:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, -10)
 	sendToLabel:SetText("Send to:")
 
 	-- Bottom row: Send Now (left); Save + Cancel (right); the unsaved label on
