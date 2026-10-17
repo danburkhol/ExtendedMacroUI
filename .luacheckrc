@@ -61,6 +61,7 @@ read_globals = {
 	"CreateMacro",
 	"EditMacro",
 	"DeleteMacro",
+	"PickupMacro",
 	"GetMacroIcons",
 	"GetMacroItemIcons",
 	"C_Macro",

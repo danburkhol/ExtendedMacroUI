@@ -14,6 +14,7 @@ local InCombatLockdown = InCombatLockdown
 local CreateMacro = CreateMacro
 local DeleteMacro = DeleteMacro
 local GetMacroInfo = GetMacroInfo
+local PickupMacro = PickupMacro
 local StaticPopup_Show = StaticPopup_Show
 
 local MacroData = ns.MacroData
@@ -254,6 +255,19 @@ local function InitRow(button, data)
 
 		button:HookScript("OnEnter", function(self) UpdateDupShown(self) end)
 		button:HookScript("OnLeave", function(self) UpdateDupShown(self) end)
+
+		-- Drag a macro onto the cursor so it can be dropped on an action bar,
+		-- the same way Blizzard's macro frame does (PickupMacro taints nothing;
+		-- the secure action button handles the drop). Left-click still selects;
+		-- only a click-drag picks up. Message rows have no macro index, so this
+		-- is a no-op there.
+		button:RegisterForDrag("LeftButton")
+		button:SetScript("OnDragStart", function(self)
+			local d = self.itemData
+			if d and d.index then
+				PickupMacro(d.index)
+			end
+		end)
 	end
 
 	button.itemData = data
