@@ -4,7 +4,6 @@ local CreateFrame = CreateFrame
 local GetMacroInfo = GetMacroInfo
 local EditMacro = EditMacro
 local InCombatLockdown = InCombatLockdown
-local strtrim = strtrim
 
 local NAME_MAX = 16
 local BODY_MAX = 255
@@ -22,13 +21,7 @@ Editor.draft = nil
 Editor.loading = false
 Editor.active = true
 
---------------------------------------------------------------------------------
--- Helpers
---------------------------------------------------------------------------------
-
-local function NameIsBlank(name)
-	return not name or strtrim(name) == ""
-end
+local NameIsBlank = ns.IsBlank
 
 --------------------------------------------------------------------------------
 -- Dirty / state
@@ -391,17 +384,10 @@ function Editor:Create(parent)
 	self.saveButton = saveButton
 
 	-- Body input (scrolling, multi-line) between the counter and the bottom row.
-	local body = CreateFrame("ScrollFrame", nil, area, "InputScrollFrameTemplate")
+	local body = ns.CreateMultilineInput(area, BODY_MAX)
 	body:SetPoint("TOPLEFT", bodyCount, "BOTTOMLEFT", 6, -6)
 	body:SetPoint("RIGHT", area, "RIGHT", -16, 0)
 	body:SetPoint("BOTTOM", cancelButton, "TOP", 0, 6)
-	body.CharCount:Hide()
-	body.EditBox:SetMaxLetters(BODY_MAX)
-	-- Keep the multi-line edit box width in sync so text wraps correctly;
-	-- the frame has no real size yet at creation.
-	body:HookScript("OnSizeChanged", function(f, width)
-		f.EditBox:SetWidth(width - 18)
-	end)
 	body.EditBox:HookScript("OnTextChanged", function(box)
 		if Editor.draft then
 			Editor.draft.body = box:GetText()
@@ -420,17 +406,8 @@ function Editor:Create(parent)
 	end)
 
 	-- "No macro selected" prompt.
-	local prompt = CreateFrame("Frame", nil, parent)
-	prompt:SetAllPoints(parent)
-	local promptTitle = prompt:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	promptTitle:SetPoint("CENTER", prompt, "CENTER", 0, 20)
-	promptTitle:SetText("No macro selected")
-	local promptHint = prompt:CreateFontString(nil, "ARTWORK", "GameFontDisable")
-	promptHint:SetPoint("TOP", promptTitle, "BOTTOM", 0, -8)
-	promptHint:SetWidth(240)
-	promptHint:SetText("Pick a macro from the list, or create a new one to start editing.")
-	prompt:Hide()
-	self.prompt = prompt
+	self.prompt = ns.CreatePrompt(parent, "No macro selected",
+		"Pick a macro from the list, or create a new one to start editing.")
 
 	area:Hide()
 end

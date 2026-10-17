@@ -243,13 +243,7 @@ local function InitListButton(button, data)
 	if not button.created then
 		button.created = true
 
-		button.Selected = button:CreateTexture(nil, "BACKGROUND")
-		button.Selected:SetAllPoints()
-		button.Selected:SetColorTexture(1, 0.82, 0, 0.16)
-
-		local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-		highlight:SetAllPoints()
-		highlight:SetColorTexture(1, 1, 1, 0.08)
+		button.Selected = ns.AddRowHighlight(button)
 
 		button.Icon = button:CreateTexture(nil, "ARTWORK")
 		button.Icon:SetSize(16, 16)
@@ -562,7 +556,7 @@ function MacroBuilder:Create()
 	ns.RegisterEditBox(nameBox)
 
 	-- Scrolling list between the search box and the name row.
-	local box = CreateFrame("Frame", nil, inset, "InsetFrameTemplate")
+	local box, scrollBox, scrollBar = ns.CreateScrollList(inset, 22)
 	box:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -2, -6)
 	box:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 2, -6)
 	box:SetPoint("BOTTOM", nameLabel, "TOP", 0, 8)
@@ -574,14 +568,6 @@ function MacroBuilder:Create()
 	ns.SetMutedText(emptyText)
 	emptyText:Hide()
 	self.emptyText = emptyText
-
-	local scrollBox = CreateFrame("Frame", nil, box, "WowScrollBoxList")
-	scrollBox:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-	scrollBox:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -22, 4)
-
-	local scrollBar = CreateFrame("EventFrame", nil, box, "MinimalScrollBar")
-	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
-	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
 
 	local view = CreateScrollBoxListLinearView()
 	view:SetElementExtent(ROW_HEIGHT)

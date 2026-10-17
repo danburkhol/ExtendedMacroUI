@@ -24,7 +24,6 @@ local CONTENT_MAX = 255 -- SendChatMessage sends one line; the game caps at 255.
 local CONTENT_WARN = 240
 local CONTENT_HEIGHT = 72
 local OUTPUT_ROW_HEIGHT = 22
-local SCROLLBAR_WIDTH = 24
 
 local MessageEditor = {}
 ns.MessageEditor = MessageEditor
@@ -42,9 +41,7 @@ MessageEditor.loading = false
 -- Helpers
 --------------------------------------------------------------------------------
 
-local function NameIsBlank(name)
-	return not name or strtrim(name) == ""
-end
+local NameIsBlank = ns.IsBlank
 
 -- Shallow-copies an outputs array keeping only persisted fields.
 local function CopyOutputs(outputs)
@@ -412,15 +409,10 @@ function MessageEditor:Create(parent)
 	self.contentCount = contentCount
 
 	-- Content input (scrolling, multi-line), fixed height.
-	local body = CreateFrame("ScrollFrame", nil, area, "InputScrollFrameTemplate")
+	local body = ns.CreateMultilineInput(area, CONTENT_MAX)
 	body:SetPoint("TOPLEFT", contentCount, "BOTTOMLEFT", 6, -6)
 	body:SetPoint("RIGHT", area, "RIGHT", -16, 0)
 	body:SetHeight(CONTENT_HEIGHT)
-	body.CharCount:Hide()
-	body.EditBox:SetMaxLetters(CONTENT_MAX)
-	body:HookScript("OnSizeChanged", function(f, width)
-		f.EditBox:SetWidth(width - 18)
-	end)
 	body.EditBox:HookScript("OnTextChanged", function(box)
 		if MessageEditor.draft then
 			MessageEditor.draft.content = box:GetText()
@@ -465,18 +457,10 @@ function MessageEditor:Create(parent)
 	self.saveButton = saveButton
 
 	-- Output checklist, between "Send to:" and the bottom row.
-	local box = CreateFrame("Frame", nil, area, "InsetFrameTemplate")
+	local box, scrollBox, scrollBar = ns.CreateScrollList(area)
 	box:SetPoint("TOPLEFT", sendToLabel, "BOTTOMLEFT", 0, -4)
 	box:SetPoint("RIGHT", area, "RIGHT", -10, 0)
 	box:SetPoint("BOTTOM", sendButton, "TOP", 0, 8)
-
-	local scrollBox = CreateFrame("Frame", nil, box, "WowScrollBoxList")
-	scrollBox:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-	scrollBox:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -(SCROLLBAR_WIDTH), 4)
-
-	local scrollBar = CreateFrame("EventFrame", nil, box, "MinimalScrollBar")
-	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
-	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
 
 	local view = CreateScrollBoxListLinearView()
 	view:SetElementExtent(OUTPUT_ROW_HEIGHT)
@@ -486,17 +470,8 @@ function MessageEditor:Create(parent)
 	self.outputBox = scrollBox
 
 	-- "No message selected" prompt.
-	local prompt = CreateFrame("Frame", nil, parent)
-	prompt:SetAllPoints(parent)
-	local promptTitle = prompt:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-	promptTitle:SetPoint("CENTER", prompt, "CENTER", 0, 20)
-	promptTitle:SetText("No message selected")
-	local promptHint = prompt:CreateFontString(nil, "ARTWORK", "GameFontDisable")
-	promptHint:SetPoint("TOP", promptTitle, "BOTTOM", 0, -8)
-	promptHint:SetWidth(240)
-	promptHint:SetText("Create a saved message to broadcast to several chat channels at once.")
-	prompt:Hide()
-	self.prompt = prompt
+	self.prompt = ns.CreatePrompt(parent, "No message selected",
+		"Create a saved message to broadcast to several chat channels at once.")
 
 	area:Hide()
 end

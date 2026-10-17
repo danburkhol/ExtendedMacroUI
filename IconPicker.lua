@@ -147,19 +147,11 @@ function IconPicker:Create()
 	local okay = ns.CreateButton(frame, "Okay", 90, 22, function() IconPicker:Okay() end)
 	okay:SetPoint("BOTTOMRIGHT", cancel, "BOTTOMLEFT", -6, 0)
 
-	-- Icon grid.
-	local box = CreateFrame("Frame", nil, inset, "InsetFrameTemplate")
+	-- Icon grid. A tighter scrollbar gutter (22) keeps the 8-column grid width.
+	local box, scrollBox, scrollBar = ns.CreateScrollList(inset, 22)
 	box:SetPoint("TOPLEFT", inset, "TOPLEFT", 10, -84)
 	box:SetPoint("TOPRIGHT", inset, "TOPRIGHT", -10, -84)
 	box:SetPoint("BOTTOM", okay, "TOP", 0, 10)
-
-	local scrollBox = CreateFrame("Frame", nil, box, "WowScrollBoxList")
-	scrollBox:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-	scrollBox:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -22, 4)
-
-	local scrollBar = CreateFrame("EventFrame", nil, box, "MinimalScrollBar")
-	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
-	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
 
 	local view = CreateScrollBoxListGridView(GRID_STRIDE, 4, 4, 4, 4, 2, 2)
 	view:SetElementSize(CELL_SIZE, CELL_SIZE)

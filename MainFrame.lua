@@ -25,7 +25,6 @@ local MAIN_FRAME_NAME = "ExtendedMacroUIFrame"
 local MAIN_WIDTH, MAIN_HEIGHT = 552, 424
 local LEFT_PANE_WIDTH = 200
 local ROW_HEIGHT = 24
-local SCROLLBAR_WIDTH = 24
 local QUESTION_MARK_ICON = 134400
 
 -- A third tab id alongside MacroData.ACCOUNT / MacroData.CHARACTER.
@@ -195,13 +194,7 @@ local function InitRow(button, data)
 	if not button.created then
 		button.created = true
 
-		button.Selected = button:CreateTexture(nil, "BACKGROUND")
-		button.Selected:SetAllPoints()
-		button.Selected:SetColorTexture(1, 0.82, 0, 0.16)
-
-		local highlight = button:CreateTexture(nil, "HIGHLIGHT")
-		highlight:SetAllPoints()
-		highlight:SetColorTexture(1, 1, 1, 0.08)
+		button.Selected = ns.AddRowHighlight(button)
 
 		button.Icon = button:CreateTexture(nil, "ARTWORK")
 		button.Icon:SetSize(18, 18)
@@ -313,7 +306,7 @@ function MainFrame:CreateListPane(frame)
 	self.footer = footer
 
 	-- Recessed container for the scrolling list.
-	local box = CreateFrame("Frame", nil, pane, "InsetFrameTemplate")
+	local box, scrollBox, scrollBar = ns.CreateScrollList(pane)
 	box:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -4, -6)
 	box:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 4, -6)
 	box:SetPoint("BOTTOM", deleteButton, "TOP", 0, 6)
@@ -326,14 +319,6 @@ function MainFrame:CreateListPane(frame)
 	ns.SetMutedText(emptyText)
 	emptyText:Hide()
 	self.emptyText = emptyText
-
-	local scrollBox = CreateFrame("Frame", nil, box, "WowScrollBoxList")
-	scrollBox:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
-	scrollBox:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -(SCROLLBAR_WIDTH), 4)
-
-	local scrollBar = CreateFrame("EventFrame", nil, box, "MinimalScrollBar")
-	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
-	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
 
 	local view = CreateScrollBoxListLinearView()
 	view:SetElementExtent(ROW_HEIGHT)

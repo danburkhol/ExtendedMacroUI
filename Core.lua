@@ -54,8 +54,9 @@ function ns.CreateButton(parent, text, width, height, onClick)
 	return button
 end
 
--- A hidden, movable-elsewhere portrait window (our two windows share this
--- chrome). Callers position it, set scripts and add their own contents.
+-- A hidden, movable-elsewhere portrait window (the main window, icon picker and
+-- macro builder all share this chrome). Callers position it, set scripts and
+-- add their own contents.
 function ns.CreatePortraitWindow(name, width, height, title)
 	local frame = CreateFrame("Frame", name, UIParent, "ButtonFrameTemplate")
 	frame:SetSize(width, height)
@@ -77,6 +78,80 @@ end
 ns.MUTED_COLOR = { 0.72, 0.67, 0.54 }
 function ns.SetMutedText(fontString)
 	fontString:SetTextColor(ns.MUTED_COLOR[1], ns.MUTED_COLOR[2], ns.MUTED_COLOR[3])
+end
+
+-- True for a nil/empty/whitespace-only string. Name boxes use this to gate Save.
+function ns.IsBlank(text)
+	return not text or strtrim(text) == ""
+end
+
+-- Builds the recessed list container shared by every scrolling list in the
+-- addon: an InsetFrame box holding a WowScrollBoxList and a MinimalScrollBar.
+-- The caller anchors the returned `box`, builds a view (linear or grid) and
+-- calls ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view).
+-- `rightInset` is the box-to-scrollBox right gap that leaves room for the
+-- scrollbar (defaults to 24; the icon grid passes a tighter value so its fixed
+-- column count still fits).
+function ns.CreateScrollList(parent, rightInset)
+	rightInset = rightInset or 24
+	local box = CreateFrame("Frame", nil, parent, "InsetFrameTemplate")
+
+	local scrollBox = CreateFrame("Frame", nil, box, "WowScrollBoxList")
+	scrollBox:SetPoint("TOPLEFT", box, "TOPLEFT", 4, -4)
+	scrollBox:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -rightInset, 4)
+
+	local scrollBar = CreateFrame("EventFrame", nil, box, "MinimalScrollBar")
+	scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 4, 0)
+	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
+
+	return box, scrollBox, scrollBar
+end
+
+-- Adds the standard row visuals to a list button: a gold "selected" background
+-- (shown by the owner when the row is the selection) and a subtle hover
+-- highlight. Returns the Selected texture so the caller can toggle it.
+function ns.AddRowHighlight(button)
+	local selected = button:CreateTexture(nil, "BACKGROUND")
+	selected:SetAllPoints()
+	selected:SetColorTexture(1, 0.82, 0, 0.16)
+
+	local highlight = button:CreateTexture(nil, "HIGHLIGHT")
+	highlight:SetAllPoints()
+	highlight:SetColorTexture(1, 1, 1, 0.08)
+
+	return selected
+end
+
+-- The centered "nothing selected" placeholder both editor panes show when no
+-- item is loaded. Returns the (hidden) prompt frame.
+function ns.CreatePrompt(parent, title, hint)
+	local prompt = CreateFrame("Frame", nil, parent)
+	prompt:SetAllPoints(parent)
+
+	local promptTitle = prompt:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+	promptTitle:SetPoint("CENTER", prompt, "CENTER", 0, 20)
+	promptTitle:SetText(title)
+
+	local promptHint = prompt:CreateFontString(nil, "ARTWORK", "GameFontDisable")
+	promptHint:SetPoint("TOP", promptTitle, "BOTTOM", 0, -8)
+	promptHint:SetWidth(240)
+	promptHint:SetText(hint)
+
+	prompt:Hide()
+	return prompt
+end
+
+-- A scrolling multi-line text input (InputScrollFrameTemplate) with the built-in
+-- char counter hidden and the editbox width kept in sync with the frame so text
+-- wraps correctly. Callers anchor it, set OnTextChanged and RegisterEditBox.
+function ns.CreateMultilineInput(parent, maxLetters)
+	local body = CreateFrame("ScrollFrame", nil, parent, "InputScrollFrameTemplate")
+	body.CharCount:Hide()
+	body.EditBox:SetMaxLetters(maxLetters)
+	body:HookScript("OnSizeChanged", function(f, width)
+		f.EditBox:SetWidth(width - 18)
+	end)
+	return body
 end
 
 local DB_DEFAULTS = {
