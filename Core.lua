@@ -447,15 +447,16 @@ local function BuildOptions()
 			Settings.VarType.Number, "Message send interval (anti-spam)",
 			15, GetInterval, SetInterval)
 
-		local options = Settings.CreateSliderOptions(1, 60, 1)
+		-- 0.5s steps so the minimum can be 0.5 while whole seconds stay reachable.
+		local options = Settings.CreateSliderOptions(0.5, 60, 0.5)
 		options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, function(value)
-			return ("%d sec"):format(value)
+			return ("%g sec"):format(value)
 		end)
 
 		local intervalTooltip = "The minimum time between sending saved messages. The addon"
 			.. " won't send any message (via Send Now or /emu send) again until this many"
 			.. " seconds have passed since the last one, to prevent accidental or"
-			.. " intentional spam.\n\nDefault: 15 seconds. Minimum: 1 second."
+			.. " intentional spam.\n\nDefault: 15 seconds. Minimum: 0.5 seconds."
 		Settings.CreateSlider(category, intervalSetting, options, intervalTooltip)
 	end
 

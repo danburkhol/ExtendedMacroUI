@@ -28,8 +28,10 @@ local strtrim = strtrim
 local sort = table.sort
 local ceil = math.ceil
 
--- Anti-spam default; the EMU settings slider overrides this (clamped >= 1).
+-- Anti-spam default and floor; the EMU settings slider overrides the default
+-- (clamped to >= MIN_INTERVAL).
 local DEFAULT_INTERVAL = 15
+local MIN_INTERVAL = 0.5
 
 local Messages = {}
 ns.Messages = Messages
@@ -230,13 +232,14 @@ end
 --------------------------------------------------------------------------------
 
 -- The anti-spam interval in seconds (the min gap between any two sends). Driven
--- by the EMU settings slider; falls back to the default and never drops below 1.
+-- by the EMU settings slider; falls back to the default and never drops below
+-- the 0.5s minimum.
 function Messages.GetInterval()
 	local v = ns.db and ns.db.sendInterval
 	if type(v) ~= "number" then
 		return DEFAULT_INTERVAL
 	end
-	return v < 1 and 1 or v
+	return v < MIN_INTERVAL and MIN_INTERVAL or v
 end
 
 -- Seconds remaining before another send is allowed, or 0 if one is allowed now.
