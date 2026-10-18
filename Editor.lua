@@ -130,13 +130,13 @@ function Editor:SyncRun()
 	local d = self.draft
 	self.run:SetAttribute("macrotext", (d and d.body) or "")
 	self.run:SetEnabled(d ~= nil and self.index ~= nil)
-	-- Keep the UIParent-parented button on the window's own layer so it never
-	-- floats above unrelated frames (e.g. TradeSkillMaster). SetFrameStrata
-	-- resets level, so set strata first. Out-of-combat only (guarded above).
-	if ns.frame then
-		self.run:SetFrameStrata(ns.frame:GetFrameStrata())
-		self.run:SetFrameLevel(ns.frame:GetFrameLevel() + 20)
-	end
+	-- DIALOG strata so the button stays above Blizzard's full-screen TimerTracker
+	-- (also DIALOG) and is therefore visible, but at a low level so a focused
+	-- window (e.g. TradeSkillMaster) raised within DIALOG still covers it instead
+	-- of the button floating on top. SetFrameStrata resets level, so set it first.
+	-- Out-of-combat only (guarded above).
+	self.run:SetFrameStrata("DIALOG")
+	self.run:SetFrameLevel(2)
 end
 
 -- Shows/hides and syncs the (UIParent-parented) Run button to match the
@@ -353,10 +353,8 @@ function Editor:Create(parent)
 	-- unprotected and can open/close/move in combat. Its own visibility is
 	-- managed with combat-safe ops in UpdateRun().
 	local run = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate, UIPanelButtonTemplate")
-	-- Strata/level are synced to the window in SyncRun; start on its layer.
-	if ns.frame then
-		run:SetFrameStrata(ns.frame:GetFrameStrata())
-	end
+	-- DIALOG (above the full-screen TimerTracker); level is set in SyncRun.
+	run:SetFrameStrata("DIALOG")
 	run:SetSize(86, 22)
 	run:SetPoint("BOTTOMLEFT", area, "BOTTOMLEFT", 6, 4)
 	run:SetText("Run Macro")
