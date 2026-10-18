@@ -45,8 +45,9 @@ MacroBuilder.target = "none"
 MacroBuilder.modifier = "none"
 
 local ACTIONS = {
-	{ key = "cast", text = "Cast Spell" },
-	{ key = "use",  text = "Use Item" },
+	{ key = "cast",    text = "Cast Spell" },
+	{ key = "use",     text = "Use Item" },
+	{ key = "message", text = "Saved Message" },
 }
 
 -- Targeting choices. The macro clause uses "@<key>" (except "none").
@@ -171,6 +172,12 @@ function MacroBuilder.Compose(action, name, target, modifier, rankN, rankPrefix)
 	end
 	name = strtrim(name)
 
+	-- Saved messages are sent through our slash command, which takes only a
+	-- name (no [@target,mod] conditionals), so emit it plainly.
+	if action == "message" then
+		return "/emu send " .. name
+	end
+
 	local conds = {}
 	if target and target ~= "none" then
 		conds[#conds + 1] = "@" .. target
@@ -220,6 +227,10 @@ function MacroBuilder.Describe(action, name, target, modifier, rankN, rankPrefix
 	end
 	name = strtrim(name)
 
+	if action == "message" then
+		return ("Sends the saved message \"%s\"."):format(name)
+	end
+
 	local token = name
 	if action == "cast" and rankN and rankPrefix then
 		token = name .. " (" .. rankPrefix .. rankN .. ")"
@@ -262,7 +273,17 @@ local function InitListButton(button, data)
 	end
 
 	button.data = data
-	button.Icon:SetTexture(data.icon)
+	button.Name:ClearAllPoints()
+	if data.icon then
+		button.Icon:Show()
+		button.Icon:SetTexture(data.icon)
+		button.Name:SetPoint("LEFT", button.Icon, "RIGHT", 6, 0)
+	else
+		-- Saved messages have no icon; start the name at the left edge.
+		button.Icon:Hide()
+		button.Name:SetPoint("LEFT", button, "LEFT", 6, 0)
+	end
+	button.Name:SetPoint("RIGHT", button, "RIGHT", -4, 0)
 	button.Name:SetText(data.name)
 	button.Selected:SetShown(data.key == MacroBuilder.selectedKey)
 end
@@ -272,13 +293,22 @@ function MacroBuilder:RefreshList()
 	if not self.scrollBox then
 		return
 	end
-	local items = (self.action == "use") and MacroBuilder.BagItems() or MacroBuilder.KnownSpells()
+	local items
+	if self.action == "use" then
+		items = MacroBuilder.BagItems()
+	elseif self.action == "message" then
+		items = ns.Messages.ListItems()
+	else
+		items = MacroBuilder.KnownSpells()
+	end
 	self.allItems = items
 	local filtered = ns.MacroData.Filter(items, self.query or "")
 	self.scrollBox:SetDataProvider(CreateDataProvider(filtered), true)
 
 	if self.emptyText then
-		local noun = (self.action == "use") and "items" or "spells"
+		local noun = (self.action == "use") and "items"
+			or (self.action == "message") and "saved messages"
+			or "spells"
 		if #items == 0 then
 			self.emptyText:SetText(("No %s found."):format(noun))
 			self.emptyText:Show()
@@ -308,15 +338,24 @@ function MacroBuilder:SelectEntry(data)
 		return
 	end
 	self.selectedKey = data.key
-	-- Clicking the list fills the name box, so that box is always the single,
-	-- visible source of truth. Its OnTextChanged refreshes rank/preview.
-	self.nameBox:SetText(data.name)
+	if self.action == "message" then
+		-- Saved messages are list-only (no typing); remember the picked name.
+		self.selectedMessageName = data.name
+		self:UpdatePreview()
+	else
+		-- Clicking the list fills the name box, so that box is the single,
+		-- visible source of truth. Its OnTextChanged refreshes rank/preview.
+		self.nameBox:SetText(data.name)
+	end
 	self:UpdateListSelection()
 end
 
--- The name the command acts on -- always the name box (the list and Shift-click
--- both fill it, for spells and items alike).
+-- The name the command acts on. Spells/items use the editable name box; saved
+-- messages use the list selection only (no manual entry).
 function MacroBuilder:EffectiveName()
+	if self.action == "message" then
+		return self.selectedMessageName or ""
+	end
 	return self.nameBox and strtrim(self.nameBox:GetText() or "") or ""
 end
 
@@ -342,6 +381,8 @@ function MacroBuilder:UpdatePreview()
 	else
 		local hint = (self.action == "use")
 			and "Pick an item or type its name to build a /use command."
+			or (self.action == "message")
+			and "Pick a saved message to insert an /emu send command."
 			or "Pick a spell to build a /cast command."
 		self.preview:SetText(hint)
 		ns.SetMutedText(self.preview)
@@ -353,12 +394,29 @@ end
 -- Labels the name box for the current action, and shows the rank box only for a
 -- /cast whose spell actually has ranks.
 function MacroBuilder:UpdateVisibility()
-	local isItem = (self.action == "use")
-	self.nameLabel:SetText(isItem
-		and "Item name (click the list, type, or Shift-click an item)"
+	local action = self.action
+	local isItem = (action == "use")
+	local isMessage = (action == "message")
+
+	self.nameLabel:SetText(
+		isItem and "Item name (click the list, type, or Shift-click an item)"
 		or "Spell name (click the list, type, or Shift-click from your spellbook)")
 
-	local showRank = (not isItem) and self.rankPrefix ~= nil
+	-- Saved messages are chosen from the list only (no manual name entry), so
+	-- the name box is hidden for that action.
+	local showName = not isMessage
+	self.nameLabel:SetShown(showName)
+	self.nameBox:SetShown(showName)
+
+	-- Targeting/modifier conditionals apply to /cast and /use, not /emu send.
+	local showConds = not isMessage
+	self.targetLabel:SetShown(showConds)
+	self.targetDropdown:SetShown(showConds)
+	self.modLabel:SetShown(showConds)
+	self.modDropdown:SetShown(showConds)
+
+	-- Rank box only for a /cast whose spell actually has ranks.
+	local showRank = (action == "cast") and self.rankPrefix ~= nil
 	self.rankLabel:SetShown(showRank)
 	self.rankBox:SetShown(showRank)
 	if not showRank then
@@ -373,6 +431,7 @@ function MacroBuilder:SetAction(key)
 	end
 	self.action = key
 	self.selectedKey = nil
+	self.selectedMessageName = nil
 	self.rankPrefix = nil
 	self.rankN = nil
 	if self.rankBox then self.rankBox:SetText("") end
@@ -480,6 +539,7 @@ function MacroBuilder:Create()
 	local modLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	modLabel:SetPoint("BOTTOMLEFT", rankLabel, "TOPLEFT", 0, 18)
 	modLabel:SetText("Modifier")
+	self.modLabel = modLabel
 
 	local modDropdown = CreateFrame("DropdownButton", nil, inset, "WowStyle1DropdownTemplate")
 	modDropdown:SetWidth(190)
@@ -507,6 +567,7 @@ function MacroBuilder:Create()
 	local targetLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	targetLabel:SetPoint("BOTTOMLEFT", modLabel, "TOPLEFT", 0, 36)
 	targetLabel:SetText("Target")
+	self.targetLabel = targetLabel
 
 	local targetDropdown = CreateFrame("DropdownButton", nil, inset, "WowStyle1DropdownTemplate")
 	targetDropdown:SetWidth(190)
@@ -544,9 +605,9 @@ function MacroBuilder:Create()
 	nameBox:SetAutoFocus(false)
 	nameBox:SetScript("OnEscapePressed", nameBox.ClearFocus)
 	nameBox:HookScript("OnTextChanged", function(editBox)
-		-- For a spell, derive the rank prefix from the typed/filled name so the
+		-- For a /cast, derive the rank prefix from the typed/filled name so the
 		-- rank box appears when the spell actually has ranks.
-		if MacroBuilder.action ~= "use" then
+		if MacroBuilder.action == "cast" then
 			MacroBuilder.rankPrefix = MacroBuilder.RankPrefix(strtrim(editBox:GetText() or ""))
 		end
 		MacroBuilder:UpdateVisibility()
