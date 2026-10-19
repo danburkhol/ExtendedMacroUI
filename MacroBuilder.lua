@@ -1,8 +1,8 @@
 local ADDON_NAME, ns = ...
 
--- Macro Builder: a guided side panel that composes a single macro command
--- (/cast or /use, with one optional targeting + one optional modifier
--- conditional) and inserts it as a new line into the macro being edited. It
+-- Macro Builder: a guided side panel that composes a macro command (/cast,
+-- /use, /equip, /emu send or /itemrack equip, with one optional targeting + one
+-- optional modifier conditional) and inserts it into the macro being edited. It
 -- never writes macros itself -- it only appends text to the editor's draft, so
 -- the normal dirty/Save flow applies. Not used by Saved Messages.
 --
@@ -24,6 +24,10 @@ local GetSpellBookItemInfo = GetSpellBookItemInfo
 local GetSpellBookItemName = GetSpellBookItemName
 local GetSpellTexture = GetSpellTexture
 local IsPassiveSpell = IsPassiveSpell
+local GetInventoryItemID = GetInventoryItemID
+local GetInventoryItemLink = GetInventoryItemLink
+local GetInventoryItemTexture = GetInventoryItemTexture
+local C_AddOns = C_AddOns
 local sort = table.sort
 local concat = table.concat
 local strtrim = strtrim
@@ -31,6 +35,8 @@ local strtrim = strtrim
 local BOOKTYPE_SPELL = BOOKTYPE_SPELL or "spell"
 local BACKPACK = BACKPACK_CONTAINER or 0
 local NUM_BAGS = NUM_BAG_SLOTS or 4
+local FIRST_EQUIPPED = INVSLOT_FIRST_EQUIPPED or 1
+local LAST_EQUIPPED = INVSLOT_LAST_EQUIPPED or 19
 
 local BUILDER_WIDTH, BUILDER_HEIGHT = 380, 560
 local ROW_HEIGHT = 20
@@ -47,12 +53,14 @@ local BELOW_LIST_FULL = 248
 local BELOW_LIST_MESSAGE = 90
 local LIST_CHROME = 12
 local MIN_LIST_ROWS, MAX_LIST_ROWS = 4, 8
+-- Height of the Target row, collapsed for actions that take no target.
+local TARGET_ROW_HEIGHT = 48
 local QUESTION_MARK_ICON = 134400
 
 local MacroBuilder = {}
 ns.MacroBuilder = MacroBuilder
 
--- "cast" or "use".
+-- One of the ACTIONS keys.
 MacroBuilder.action = "cast"
 MacroBuilder.target = "none"
 MacroBuilder.modifier = "none"
@@ -60,8 +68,51 @@ MacroBuilder.modifier = "none"
 local ACTIONS = {
 	{ key = "cast",    text = "Cast Spell" },
 	{ key = "use",     text = "Use Item" },
+	{ key = "equip",   text = "Equip Item" },
 	{ key = "message", text = "Saved Message" },
+	{ key = "itemrack", text = "ItemRack: Equip Set", requiresAddOn = "ItemRack",
+		disabledDesc = "Requires the ItemRack addon to be installed and enabled." },
 }
+
+-- Which conditionals each action supports. /emu send and /itemrack equip take
+-- a plain name (their handlers don't parse [conditionals]); /equip honors
+-- modifiers but a target is meaningless for it.
+local ACTION_TARGETS = { cast = true, use = true }
+local ACTION_MODIFIERS = { cast = true, use = true, equip = true }
+
+-- Equip locations that fit two slots: these get a slot choice and an
+-- /equipslot command. Every other wearable location has exactly one slot,
+-- which /equip finds by itself.
+local SLOT_CHOICES = {
+	INVTYPE_WEAPON = {
+		{ slot = INVSLOT_MAINHAND or 16, text = "Main hand", phrase = "main hand" },
+		{ slot = INVSLOT_OFFHAND or 17, text = "Off hand", phrase = "off hand" },
+	},
+	INVTYPE_TRINKET = {
+		{ slot = INVSLOT_TRINKET1 or 13, text = "Trinket 1", phrase = "first trinket slot" },
+		{ slot = INVSLOT_TRINKET2 or 14, text = "Trinket 2", phrase = "second trinket slot" },
+	},
+	INVTYPE_FINGER = {
+		{ slot = INVSLOT_FINGER1 or 11, text = "Ring 1", phrase = "first ring slot" },
+		{ slot = INVSLOT_FINGER2 or 12, text = "Ring 2", phrase = "second ring slot" },
+	},
+}
+
+-- Equippable locations that aren't worn gear (bag/ammo slots), so they're
+-- neither listed for Equip Item nor treated as needing to be worn to /use.
+local NOT_WORN = {
+	[""] = true,
+	INVTYPE_BAG = true,
+	INVTYPE_QUIVER = true,
+	INVTYPE_AMMO = true,
+	INVTYPE_NON_EQUIP_IGNORE = true,
+}
+
+-- True if an item with this equip location must be worn to be used.
+local function NeedsEquip(equipLoc)
+	return equipLoc ~= nil and not NOT_WORN[equipLoc]
+end
+MacroBuilder.NeedsEquip = NeedsEquip
 
 -- Targeting choices. The macro clause uses "@<key>" (except "none").
 local TARGETS = {
@@ -73,6 +124,7 @@ local TARGETS = {
 	{ key = "focustarget",  text = "Focus's target (@focustarget)",   desc = "@focustarget: whatever your focus is targeting." },
 	{ key = "mouseover",    text = "Mouse-over (@mouseover)",         desc = "@mouseover: the unit your cursor is over (a unit frame or 3D model)." },
 	{ key = "pet",          text = "Pet (@pet)",                      desc = "@pet: your pet." },
+	{ key = "cursor",       text = "Cursor (@cursor)",                desc = "@cursor: places a ground-targeted spell or item (e.g. Blizzard, Flare) at your mouse cursor without the targeting circle." },
 }
 
 -- Modifier choices mapped to their macro conditional token.
@@ -133,33 +185,124 @@ local function NameFromLink(link)
 	return link and link:match("%[(.-)%]") or nil
 end
 
--- Every usable item currently in the player's bags, as sorted
--- { key = itemID, name, icon, itemID }. De-duplicated by itemID. Only items
--- with an on-use spell (C_Item.GetItemSpell returns one) are included, so
--- reagents, plain armor and other non-/use items are filtered out.
-function MacroBuilder.BagItems()
+-- Items the player is wearing plus everything in their bags, filtered by
+-- `accept(entry)`, as sorted { key = itemID, name, icon, itemID, equipLoc,
+-- worn, wornSlot, note }. De-duplicated by itemID (a worn copy wins over a
+-- bag copy).
+local function InventoryItems(accept)
 	local list, seen = {}, {}
+	local function add(itemID, link, icon, wornSlot)
+		if not itemID or seen[itemID] then
+			return
+		end
+		local name = NameFromLink(link)
+		if not name then
+			return
+		end
+		local entry = {
+			key = itemID,
+			name = name,
+			icon = icon or QUESTION_MARK_ICON,
+			itemID = itemID,
+			equipLoc = select(4, C_Item.GetItemInfoInstant(itemID)),
+			worn = wornSlot ~= nil,
+			wornSlot = wornSlot,
+			note = wornSlot and "(equipped)" or nil,
+		}
+		if accept(entry) then
+			seen[itemID] = true
+			list[#list + 1] = entry
+		end
+	end
+	for slot = FIRST_EQUIPPED, LAST_EQUIPPED do
+		local itemID = GetInventoryItemID("player", slot)
+		if itemID then
+			add(itemID, GetInventoryItemLink("player", slot), GetInventoryItemTexture("player", slot), slot)
+		end
+	end
 	for bag = BACKPACK, NUM_BAGS do
 		local slots = C_Container.GetContainerNumSlots(bag) or 0
 		for slot = 1, slots do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
-			if info and info.itemID and not seen[info.itemID] then
-				local name = NameFromLink(info.hyperlink)
-				local useSpell = name and C_Item.GetItemSpell(info.itemID)
-				if name and useSpell then
-					seen[info.itemID] = true
-					list[#list + 1] = {
-						key = info.itemID,
-						name = name,
-						icon = info.iconFileID or QUESTION_MARK_ICON,
-						itemID = info.itemID,
-					}
-				end
+			if info then
+				add(info.itemID, info.hyperlink, info.iconFileID, nil)
 			end
 		end
 	end
 	sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
 	return list
+end
+
+-- Every item (worn or in bags) with an on-use spell (C_Item.GetItemSpell
+-- returns one), so reagents, plain armor and other non-/use items are skipped.
+function MacroBuilder.UsableItems()
+	return InventoryItems(function(e)
+		return C_Item.GetItemSpell(e.itemID) ~= nil
+	end)
+end
+
+-- Every wearable item the player has, worn or in bags.
+function MacroBuilder.EquippableItems()
+	return InventoryItems(function(e)
+		return C_Item.IsEquippableItem(e.itemID) and NeedsEquip(e.equipLoc)
+	end)
+end
+
+-- True if ItemRack is loaded (its action is grayed out in the menu otherwise).
+function MacroBuilder.HasItemRack()
+	return (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("ItemRack")) and true or false
+end
+
+-- ItemRack's per-character set table, or nil if it can't be read (ItemRack not
+-- loaded, or a version that stores sets differently -- the builder then falls
+-- back to typing the set name).
+local function ItemRackSetTable()
+	local user = MacroBuilder.HasItemRack() and _G.ItemRackUser
+	if type(user) == "table" and type(user.Sets) == "table" then
+		return user.Sets
+	end
+	return nil
+end
+
+-- True if ItemRack's sets can be listed (so the set is picked from the list
+-- instead of typed).
+function MacroBuilder.CanListItemRackSets()
+	return ItemRackSetTable() ~= nil
+end
+
+-- The player's ItemRack sets as sorted { key, name, icon }. Names starting with
+-- "~" are ItemRack's internal sets (~Unequip, ~CombatQueue) and are skipped.
+function MacroBuilder.ItemRackSets()
+	local list = {}
+	local sets = ItemRackSetTable()
+	if not sets then
+		return list
+	end
+	for name, set in pairs(sets) do
+		if type(name) == "string" and not name:match("^~") then
+			local icon = type(set) == "table" and set.icon or nil
+			list[#list + 1] = { key = name, name = name, icon = icon or QUESTION_MARK_ICON }
+		end
+	end
+	sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
+	return list
+end
+
+-- The equip location for an item name, plus the slot it's worn in (if worn):
+-- first among the listed items (so typed or shift-clicked names resolve
+-- without a cache lookup), then the item API, which accepts names of items the
+-- client already knows.
+function MacroBuilder.EquipLocFor(name, items)
+	if not name or name == "" then
+		return nil
+	end
+	local lname = name:lower()
+	for _, item in ipairs(items or {}) do
+		if item.name:lower() == lname then
+			return item.equipLoc, item.wornSlot
+		end
+	end
+	return select(4, C_Item.GetItemInfoInstant(name))
 end
 
 -- The localized rank prefix for a spell (e.g. "Rank " from "Rank 6"), or nil if
@@ -177,20 +320,8 @@ function MacroBuilder.RankPrefix(identifier)
 	return sub:match("^(%D+)%d")
 end
 
--- Builds the command string from the current choices. Pure; returns "" when
--- there's no name to act on.
-function MacroBuilder.Compose(action, name, target, modifier, rankN, rankPrefix)
-	if not name or strtrim(name) == "" then
-		return ""
-	end
-	name = strtrim(name)
-
-	-- Saved messages are sent through our slash command, which takes only a
-	-- name (no [@target,mod] conditionals), so emit it plainly.
-	if action == "message" then
-		return "/emu send " .. name
-	end
-
+-- The "[...] " conditional clause for a target/modifier pair ("" for none).
+local function Clause(target, modifier)
 	local conds = {}
 	if target and target ~= "none" then
 		conds[#conds + 1] = "@" .. target
@@ -199,15 +330,57 @@ function MacroBuilder.Compose(action, name, target, modifier, rankN, rankPrefix)
 	if modCond then
 		conds[#conds + 1] = modCond
 	end
-	local clause = (#conds > 0) and ("[" .. concat(conds, ",") .. "] ") or ""
+	return (#conds > 0) and ("[" .. concat(conds, ",") .. "] ") or ""
+end
 
-	local token = name
-	if action == "cast" and rankN and rankPrefix then
-		token = name .. "(" .. rankPrefix .. rankN .. ")"
+-- Builds the command text from the current choices. Pure; returns "" when
+-- there's no name to act on. `o` holds: action, name, target, modifier,
+-- rankN + rankPrefix (spells), equipLoc + equipSlot (items). May return two
+-- lines (Use Item on gear that has to be worn first).
+function MacroBuilder.Compose(o)
+	local name = o.name and strtrim(o.name) or ""
+	if name == "" then
+		return ""
+	end
+	local action = o.action
+
+	-- Saved messages and ItemRack sets go through slash commands that take
+	-- only a name (no [@target,mod] conditionals), so emit them plainly.
+	if action == "message" then
+		return "/emu send " .. name
+	elseif action == "itemrack" then
+		return "/itemrack equip " .. name
 	end
 
-	local verb = (action == "use") and "/use " or "/cast "
-	return verb .. clause .. token
+	local target = ACTION_TARGETS[action] and o.target or "none"
+	local modifier = ACTION_MODIFIERS[action] and o.modifier or "none"
+	local clause = Clause(target, modifier)
+
+	if action == "equip" then
+		if o.equipSlot then
+			return "/equipslot " .. clause .. o.equipSlot .. " " .. name
+		end
+		return "/equip " .. clause .. name
+	elseif action == "use" then
+		local line = "/use " .. clause .. name
+		if NeedsEquip(o.equipLoc) then
+			-- Gear has to be worn to be used, so equip it first (into the chosen
+			-- slot for two-slot items). Equipping an item where it's already
+			-- worn does nothing, so this only swaps it in when needed. Same
+			-- modifier as the /use.
+			local mod = Clause("none", modifier)
+			local equip = o.equipSlot and ("/equipslot " .. mod .. o.equipSlot .. " " .. name)
+				or ("/equip " .. mod .. name)
+			return equip .. "\n" .. line
+		end
+		return line
+	end
+
+	local token = name
+	if o.rankN and o.rankPrefix then
+		token = name .. "(" .. o.rankPrefix .. o.rankN .. ")"
+	end
+	return "/cast " .. clause .. token
 end
 
 local TARGET_PHRASE = {
@@ -218,6 +391,7 @@ local TARGET_PHRASE = {
 	focustarget = "on your focus's target",
 	mouseover = "on the unit under your cursor",
 	pet = "on your pet",
+	cursor = "at your mouse cursor",
 }
 
 local MOD_PHRASE = {
@@ -232,24 +406,57 @@ local MOD_PHRASE = {
 	btn5 = "when triggered with mouse button 5",
 }
 
+-- The human phrase for a slot number within an item's slot choices.
+local function SlotPhrase(equipLoc, slot)
+	for _, choice in ipairs(SLOT_CHOICES[equipLoc] or {}) do
+		if choice.slot == slot then
+			return choice.phrase
+		end
+	end
+	return nil
+end
+
 -- A plain-language description of what the composed command does, e.g.
 -- "Uses Healthstone on your focus target." Pure; "" when there's no name.
-function MacroBuilder.Describe(action, name, target, modifier, rankN, rankPrefix)
-	if not name or strtrim(name) == "" then
+-- Takes the same options table as Compose.
+function MacroBuilder.Describe(o)
+	local name = o.name and strtrim(o.name) or ""
+	if name == "" then
 		return ""
 	end
-	name = strtrim(name)
+	local action = o.action
 
 	if action == "message" then
 		return ("Sends the saved message \"%s\"."):format(name)
+	elseif action == "itemrack" then
+		return ("Equips the ItemRack set \"%s\" (the name must match exactly)."):format(name)
 	end
 
-	local token = name
-	if action == "cast" and rankN and rankPrefix then
-		token = name .. " (" .. rankPrefix .. rankN .. ")"
-	end
+	local target = ACTION_TARGETS[action] and o.target or "none"
+	local modifier = ACTION_MODIFIERS[action] and o.modifier or "none"
 
-	local parts = { (action == "use") and ("Uses " .. token) or ("Casts " .. token) }
+	local parts
+	if action == "equip" then
+		parts = { "Equips " .. name }
+		local slotPhrase = o.equipSlot and SlotPhrase(o.equipLoc, o.equipSlot)
+		if slotPhrase then
+			parts[#parts + 1] = "in your " .. slotPhrase
+		end
+	elseif action == "use" then
+		if NeedsEquip(o.equipLoc) then
+			local slotPhrase = o.equipSlot and SlotPhrase(o.equipLoc, o.equipSlot)
+			parts = { "Equips " .. name .. (slotPhrase and (" in your " .. slotPhrase) or "")
+				.. " if it isn't there, then uses it" }
+		else
+			parts = { "Uses " .. name }
+		end
+	else
+		local token = name
+		if o.rankN and o.rankPrefix then
+			token = name .. " (" .. o.rankPrefix .. o.rankN .. ")"
+		end
+		parts = { "Casts " .. token }
+	end
 	if TARGET_PHRASE[target] then
 		parts[#parts + 1] = TARGET_PHRASE[target]
 	end
@@ -297,37 +504,38 @@ local function InitListButton(button, data)
 		button.Name:SetPoint("LEFT", button, "LEFT", 6, 0)
 	end
 	button.Name:SetPoint("RIGHT", button, "RIGHT", -4, 0)
-	button.Name:SetText(data.name)
+	-- A muted note after the name, e.g. "(equipped)" for worn items.
+	button.Name:SetText(data.note and (data.name .. " |cff9d9d9d" .. data.note .. "|r") or data.name)
 	button.Selected:SetShown(data.key == MacroBuilder.selectedKey)
 end
+
+-- What each action lists, and the noun used in its empty-state text.
+local LIST_SOURCES = {
+	cast = { fetch = function() return MacroBuilder.KnownSpells() end, noun = "spells" },
+	use = { fetch = function() return MacroBuilder.UsableItems() end, noun = "usable items" },
+	equip = { fetch = function() return MacroBuilder.EquippableItems() end, noun = "equippable items" },
+	message = { fetch = function() return ns.Messages.ListItems() end, noun = "saved messages" },
+	itemrack = { fetch = function() return MacroBuilder.ItemRackSets() end, noun = "ItemRack sets" },
+}
 
 -- Rebuilds the list for the current action and search query.
 function MacroBuilder:RefreshList()
 	if not self.scrollBox then
 		return
 	end
-	local items
-	if self.action == "use" then
-		items = MacroBuilder.BagItems()
-	elseif self.action == "message" then
-		items = ns.Messages.ListItems()
-	else
-		items = MacroBuilder.KnownSpells()
-	end
+	local source = LIST_SOURCES[self.action] or LIST_SOURCES.cast
+	local items = source.fetch()
 	self.allItems = items
 	self:UpdateHeight()
 	local filtered = ns.MacroData.Filter(items, self.query or "")
 	self.scrollBox:SetDataProvider(CreateDataProvider(filtered), true)
 
 	if self.emptyText then
-		local noun = (self.action == "use") and "items"
-			or (self.action == "message") and "saved messages"
-			or "spells"
 		if #items == 0 then
-			self.emptyText:SetText(("No %s found."):format(noun))
+			self.emptyText:SetText(("No %s found."):format(source.noun))
 			self.emptyText:Show()
 		elseif #filtered == 0 then
-			self.emptyText:SetText(("No %s match your search."):format(noun))
+			self.emptyText:SetText(("No %s match your search."):format(source.noun))
 			self.emptyText:Show()
 		else
 			self.emptyText:Hide()
@@ -335,15 +543,30 @@ function MacroBuilder:RefreshList()
 	end
 end
 
+-- True if the current action's name is picked from the list only (no name
+-- box): saved messages, and ItemRack sets when they can be listed.
+function MacroBuilder:IsListOnly()
+	return self.action == "message"
+		or (self.action == "itemrack" and MacroBuilder.CanListItemRackSets())
+end
+
 -- Sizes the window to the (unfiltered) list, so it fits short lists and doesn't
--- jump while searching; long lists cap at MAX_LIST_ROWS and scroll.
+-- jump while searching; long lists cap at MAX_LIST_ROWS and scroll. Rows hidden
+-- for the current action (name box, target) don't take space.
 function MacroBuilder:UpdateHeight()
 	if not self.frame then
 		return
 	end
 	local count = self.allItems and #self.allItems or 0
 	local rows = math.min(math.max(count, MIN_LIST_ROWS), MAX_LIST_ROWS)
-	local below = (self.action == "message") and BELOW_LIST_MESSAGE or BELOW_LIST_FULL
+	local below
+	if self:IsListOnly() then
+		below = BELOW_LIST_MESSAGE
+	elseif not ACTION_TARGETS[self.action] then
+		below = BELOW_LIST_FULL - TARGET_ROW_HEIGHT
+	else
+		below = BELOW_LIST_FULL
+	end
 	self.frame:SetHeight(LIST_TOP + rows * ROW_HEIGHT + LIST_CHROME + below + INSET_CHROME)
 end
 
@@ -364,91 +587,135 @@ function MacroBuilder:SelectEntry(data)
 		return
 	end
 	self.selectedKey = data.key
-	if self.action == "message" then
-		-- Saved messages are list-only (no typing); remember the picked name.
-		self.selectedMessageName = data.name
+	if self:IsListOnly() then
+		-- List-only actions (no typing); remember the picked name.
+		self.selectedListName = data.name
 		self:UpdatePreview()
 	else
 		-- Clicking the list fills the name box, so that box is the single,
-		-- visible source of truth. Its OnTextChanged refreshes rank/preview.
+		-- visible source of truth. Its OnTextChanged refreshes rank/slot/preview.
 		self.nameBox:SetText(data.name)
 	end
 	self:UpdateListSelection()
 end
 
--- The name the command acts on. Spells/items use the editable name box; saved
--- messages use the list selection only (no manual entry).
+-- The name the command acts on: the list selection for list-only actions,
+-- otherwise the editable name box.
 function MacroBuilder:EffectiveName()
-	if self.action == "message" then
-		return self.selectedMessageName or ""
+	if self:IsListOnly() then
+		return self.selectedListName or ""
 	end
 	return self.nameBox and strtrim(self.nameBox:GetText() or "") or ""
 end
 
-function MacroBuilder:CurrentLine()
-	return MacroBuilder.Compose(
-		self.action,
-		self:EffectiveName(),
-		self.target,
-		self.modifier,
-		self.rankN,
-		self.rankPrefix
-	)
+-- The current choices as the options table Compose/Describe take.
+function MacroBuilder:Options()
+	return {
+		action = self.action,
+		name = self:EffectiveName(),
+		target = self.target,
+		modifier = self.modifier,
+		rankN = (self.action == "cast") and self.rankN or nil,
+		rankPrefix = (self.action == "cast") and self.rankPrefix or nil,
+		equipLoc = self.equipLoc,
+		equipSlot = (self.action == "equip" or self.action == "use") and self.equipSlot or nil,
+	}
 end
+
+function MacroBuilder:CurrentLine()
+	return MacroBuilder.Compose(self:Options())
+end
+
+local HINTS = {
+	cast = "Pick a spell to build a /cast command.",
+	use = "Pick an item or type its name to build a /use command.",
+	equip = "Pick an item or type its name to build an /equip command.",
+	message = "Pick a saved message to insert an /emu send command.",
+	itemrack = "Pick an ItemRack set to build an /itemrack equip command.",
+}
 
 function MacroBuilder:UpdatePreview()
 	local line = self:CurrentLine()
 	if line ~= "" then
 		self.preview:SetText(line)
 		self.preview:SetTextColor(1, 1, 1)
-		self.explain:SetText(MacroBuilder.Describe(
-			self.action, self:EffectiveName(), self.target, self.modifier, self.rankN, self.rankPrefix))
+		self.explain:SetText(MacroBuilder.Describe(self:Options()))
 		self.insertButton:SetEnabled(true)
 	else
-		local hint = (self.action == "use")
-			and "Pick an item or type its name to build a /use command."
-			or (self.action == "message")
-			and "Pick a saved message to insert an /emu send command."
-			or "Pick a spell to build a /cast command."
-		self.preview:SetText(hint)
+		self.preview:SetText(HINTS[self.action] or HINTS.cast)
 		ns.SetMutedText(self.preview)
 		self.explain:SetText("")
 		self.insertButton:SetEnabled(false)
 	end
 end
 
--- Labels the name box for the current action, and shows the rank box only for a
--- /cast whose spell actually has ranks.
+local NAME_LABELS = {
+	cast = "Spell name (click the list, type, or Shift-click from your spellbook)",
+	use = "Item name (click the list, type, or Shift-click an item)",
+	equip = "Item name (click the list, type, or Shift-click an item)",
+	itemrack = "ItemRack set name (type it exactly)",
+}
+
+-- Re-derives item details from the name box: the equip location (so Use Item
+-- knows the item must be worn, and both item actions know whether to offer a
+-- slot choice) and, when a different item is named, a default slot for a
+-- two-slot item: the slot it's already worn in (so the macro doesn't move it
+-- to the other slot), else the first.
+function MacroBuilder:UpdateItemDetails()
+	local name, equipLoc, wornSlot
+	if self.action == "use" or self.action == "equip" then
+		local raw = self:EffectiveName()
+		name = raw:lower()
+		equipLoc, wornSlot = MacroBuilder.EquipLocFor(raw, self.allItems)
+	end
+	if name == self.detailsName and equipLoc == self.equipLoc then
+		return
+	end
+	self.detailsName = name
+	self.equipLoc = equipLoc
+	self.equipSlot = nil
+	local choices = SLOT_CHOICES[equipLoc]
+	if choices then
+		self.equipSlot = choices[1].slot
+		for _, choice in ipairs(choices) do
+			if choice.slot == wornSlot then
+				self.equipSlot = wornSlot
+			end
+		end
+	end
+end
+
+-- Shows the per-action controls: name box (unless list-only), target and
+-- modifier rows (only where the command honors them), the rank box for a
+-- /cast whose spell has ranks, and the slot choice for Equip Item on an item
+-- that fits two slots. Re-anchors so hidden rows leave no gap.
 function MacroBuilder:UpdateVisibility()
 	local action = self.action
-	local isItem = (action == "use")
-	local isMessage = (action == "message")
+	local listOnly = self:IsListOnly()
+	local showTarget = ACTION_TARGETS[action] and true or false
+	local showModifier = ACTION_MODIFIERS[action] and true or false
 
-	self.nameLabel:SetText(
-		isItem and "Item name (click the list, type, or Shift-click an item)"
-		or "Spell name (click the list, type, or Shift-click from your spellbook)")
+	self.nameLabel:SetText(NAME_LABELS[action] or NAME_LABELS.cast)
+	self.nameLabel:SetShown(not listOnly)
+	self.nameBox:SetShown(not listOnly)
 
-	-- Saved messages are chosen from the list only (no manual name entry), so
-	-- the name box is hidden for that action.
-	local showName = not isMessage
-	self.nameLabel:SetShown(showName)
-	self.nameBox:SetShown(showName)
+	self.targetLabel:SetShown(showTarget)
+	self.targetDropdown:SetShown(showTarget)
+	self.modLabel:SetShown(showModifier)
+	self.modDropdown:SetShown(showModifier)
 
-	-- With the name/conditional rows hidden, end the list just above the
-	-- preview so no empty gap is left (UpdateHeight shrinks the window to match).
+	-- The name row sits above the target row, or directly above the modifier
+	-- row when there's no target for this action.
+	self.nameLabel:ClearAllPoints()
+	self.nameLabel:SetPoint("BOTTOMLEFT", showTarget and self.targetLabel or self.modLabel, "TOPLEFT", 0, 40)
+
+	-- List-only actions end the list just above the preview.
 	if self.listBox then
 		self.listBox:ClearAllPoints()
 		self.listBox:SetPoint("TOPLEFT", self.search, "BOTTOMLEFT", -2, -6)
 		self.listBox:SetPoint("TOPRIGHT", self.search, "BOTTOMRIGHT", 2, -6)
-		self.listBox:SetPoint("BOTTOM", isMessage and self.previewLabel or self.nameLabel, "TOP", 0, 8)
+		self.listBox:SetPoint("BOTTOM", listOnly and self.previewLabel or self.nameLabel, "TOP", 0, 8)
 	end
-
-	-- Targeting/modifier conditionals apply to /cast and /use, not /emu send.
-	local showConds = not isMessage
-	self.targetLabel:SetShown(showConds)
-	self.targetDropdown:SetShown(showConds)
-	self.modLabel:SetShown(showConds)
-	self.modDropdown:SetShown(showConds)
 
 	-- Rank box only for a /cast whose spell actually has ranks.
 	local showRank = (action == "cast") and self.rankPrefix ~= nil
@@ -458,6 +725,22 @@ function MacroBuilder:UpdateVisibility()
 		self.rankBox:SetText("")
 		self.rankN = nil
 	end
+
+	-- Slot choice (same row as Rank) for Equip Item on a two-slot item.
+	-- Also for Use Item, where gear is equipped before it's used.
+	local choices = (action == "equip" or action == "use") and SLOT_CHOICES[self.equipLoc] or nil
+	self.slotLabel:SetShown(choices ~= nil)
+	for i, radio in ipairs(self.slotRadios) do
+		local choice = choices and choices[i]
+		radio:SetShown(choice ~= nil)
+		if choice then
+			radio.text:SetText(choice.text)
+			radio.slot = choice.slot
+			radio:SetChecked(self.equipSlot == choice.slot)
+		end
+	end
+
+	self:UpdateHeight()
 end
 
 function MacroBuilder:SetAction(key)
@@ -466,9 +749,12 @@ function MacroBuilder:SetAction(key)
 	end
 	self.action = key
 	self.selectedKey = nil
-	self.selectedMessageName = nil
+	self.selectedListName = nil
 	self.rankPrefix = nil
 	self.rankN = nil
+	self.equipLoc = nil
+	self.equipSlot = nil
+	self.detailsName = nil
 	if self.rankBox then self.rankBox:SetText("") end
 	if self.nameBox then self.nameBox:SetText("") end
 	if self.actionDropdown then self.actionDropdown:GenerateMenu() end
@@ -500,9 +786,17 @@ function MacroBuilder:Create()
 	actionDropdown:SetPoint("TOPLEFT", actionLabel, "BOTTOMLEFT", 0, -6)
 	actionDropdown:SetupMenu(function(_, rootDescription)
 		for _, a in ipairs(ACTIONS) do
-			rootDescription:CreateRadio(a.text,
+			local radio = rootDescription:CreateRadio(a.text,
 				function() return MacroBuilder.action == a.key end,
 				function() MacroBuilder:SetAction(a.key) end)
+			-- Actions that drive another addon are grayed out without it.
+			if a.requiresAddOn == "ItemRack" and not MacroBuilder.HasItemRack() then
+				radio:SetEnabled(false)
+				radio:SetTooltip(function(tooltip)
+					GameTooltip_SetTitle(tooltip, a.text)
+					GameTooltip_AddNormalLine(tooltip, a.disabledDesc)
+				end)
+			end
 		end
 	end)
 	self.actionDropdown = actionDropdown
@@ -570,6 +864,32 @@ function MacroBuilder:Create()
 	end)
 	self.rankBox = rankBox
 	ns.RegisterEditBox(rankBox)
+
+	-- Slot choice for Equip Item on an item that fits two slots (one-handed
+	-- weapons, trinkets, rings). Shares the Rank row, which /equip never uses.
+	local slotLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+	slotLabel:SetPoint("BOTTOMLEFT", previewLabel, "TOPLEFT", 0, 16)
+	slotLabel:SetText("Equip to")
+	slotLabel:Hide()
+	self.slotLabel = slotLabel
+
+	self.slotRadios = {}
+	for i = 1, 2 do
+		local radio = CreateFrame("CheckButton", nil, inset, "UIRadioButtonTemplate")
+		radio.text:SetFontObject("GameFontHighlightSmall")
+		if i == 1 then
+			radio:SetPoint("LEFT", slotLabel, "LEFT", 70, 0)
+		else
+			radio:SetPoint("LEFT", self.slotRadios[1], "RIGHT", 110, 0)
+		end
+		radio:SetScript("OnClick", function(r)
+			MacroBuilder.equipSlot = r.slot
+			MacroBuilder:UpdateVisibility()
+			MacroBuilder:UpdatePreview()
+		end)
+		radio:Hide()
+		self.slotRadios[i] = radio
+	end
 
 	-- Modifier dropdown.
 	local modLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -646,6 +966,8 @@ function MacroBuilder:Create()
 		if MacroBuilder.action == "cast" then
 			MacroBuilder.rankPrefix = MacroBuilder.RankPrefix(strtrim(editBox:GetText() or ""))
 		end
+		-- For items, find where it's worn (slot choice / equip-before-use).
+		MacroBuilder:UpdateItemDetails()
 		MacroBuilder:UpdateVisibility()
 		MacroBuilder:UpdatePreview()
 	end)
@@ -675,14 +997,16 @@ function MacroBuilder:Create()
 	self.scrollBox = scrollBox
 
 	-- Keep the list fresh while open as the player learns spells or their bags
-	-- change; rebuild only for the list currently shown.
+	-- or worn gear change; rebuild only for the list currently shown.
 	frame:SetScript("OnShow", function()
 		frame:RegisterEvent("SPELLS_CHANGED")
 		frame:RegisterEvent("BAG_UPDATE_DELAYED")
+		frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 	end)
 	frame:SetScript("OnHide", function()
 		frame:UnregisterEvent("SPELLS_CHANGED")
 		frame:UnregisterEvent("BAG_UPDATE_DELAYED")
+		frame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
 	end)
 	frame:SetScript("OnEvent", function()
 		MacroBuilder:RefreshList()
@@ -704,7 +1028,8 @@ function MacroBuilder:Create()
 			return
 		end
 		if text:match("|Hitem:") then
-			if MacroBuilder.action ~= "use" then
+			-- Items fill Use or Equip as-is; any other action switches to Use.
+			if MacroBuilder.action ~= "use" and MacroBuilder.action ~= "equip" then
 				MacroBuilder:SetAction("use")
 			end
 			MacroBuilder.nameBox:SetText(name)

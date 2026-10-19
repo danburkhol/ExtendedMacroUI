@@ -111,6 +111,18 @@ read_globals = {
 	"ChatFrameUtil",
 	"GameTooltip_SetTitle",
 	"GameTooltip_AddNormalLine",
+	-- Macro builder (worn gear / equip slots)
+	"GetInventoryItemID",
+	"GetInventoryItemLink",
+	"GetInventoryItemTexture",
+	"INVSLOT_FIRST_EQUIPPED",
+	"INVSLOT_LAST_EQUIPPED",
+	"INVSLOT_MAINHAND",
+	"INVSLOT_OFFHAND",
+	"INVSLOT_TRINKET1",
+	"INVSLOT_TRINKET2",
+	"INVSLOT_FINGER1",
+	"INVSLOT_FINGER2",
 	-- Native macro window switching
 	"MacroFrame",
 	"ShowUIPanel",

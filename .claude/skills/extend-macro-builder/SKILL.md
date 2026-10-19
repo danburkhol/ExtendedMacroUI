@@ -22,7 +22,7 @@ this skill tells you which piece to touch for each kind of change.
   flavor, don't use it — say so and propose an alternative.
 - **luacheck must pass with 0 warnings.** Lint only the addon's own `.lua`
   files, never the clone:
-  `"C:/Users/agent/tools/luacheck/luacheck.exe" Core.lua MacroData.lua Messages.lua Editor.lua MessageEditor.lua MainFrame.lua IconPicker.lua MacroBuilder.lua`
+  `"C:/Users/agent/tools/luacheck/luacheck.exe" *.lua`
   Any new global API you call must be added to `read_globals` in `.luacheckrc`.
 - **Never taint secure frames.** The builder is unprotected and only edits the
   editor's draft text, so it has no combat restrictions — keep it that way. Do
@@ -36,28 +36,40 @@ this skill tells you which piece to touch for each kind of change.
 
 Everything funnels through a few pure functions and one refresh method:
 
-- `MacroBuilder.Compose(action, name, target, modifier, rankN, rankPrefix)` →
-  the command string (e.g. `/cast [@mouseover,mod:alt] Fireball`). Pure.
-- `MacroBuilder.Describe(...)` → the plain-language line under the preview.
-  Pure. Keep it in sync with Compose.
-- `MacroBuilder:EffectiveName()` → the name box text (the single source of
-  truth for both spells and items).
-- `MacroBuilder:CurrentLine()` → calls Compose with the current state.
+- `MacroBuilder.Compose(o)` → the command text (e.g.
+  `/cast [@mouseover,mod:alt] Fireball`). Pure. `o` is an options table:
+  `action, name, target, modifier, rankN, rankPrefix, equipLoc, equipSlot`.
+  May return more than one line (Use Item on gear prepends an `/equip`).
+- `MacroBuilder.Describe(o)` → the plain-language line under the preview.
+  Pure, same options table. Keep it in sync with Compose.
+- `MacroBuilder:Options()` → builds that table from the current state.
+- `MacroBuilder:EffectiveName()` → the name box text, or the list selection
+  (`self.selectedListName`) for list-only actions (`MacroBuilder:IsListOnly()`:
+  saved messages, and ItemRack sets when they can be read).
+- `MacroBuilder:CurrentLine()` → `Compose(self:Options())`.
 - `MacroBuilder:UpdatePreview()` → sets the preview + explanation + Insert
-  enabled state. Called on every change.
-- `MacroBuilder:UpdateVisibility()` → labels the name box per action and shows
-  the Rank box only for a `/cast` whose spell has ranks.
-- `MacroBuilder:RefreshList()` → fills the scrolling list for the current
-  action (filtered by the search box via `ns.MacroData.Filter`).
+  enabled state (hint text per action comes from `HINTS`). Called on every change.
+- `MacroBuilder:UpdateItemDetails()` → derives `equipLoc` (and a default
+  `equipSlot` for two-slot items via `SLOT_CHOICES`) from the name box.
+- `MacroBuilder:UpdateVisibility()` → name-box label (`NAME_LABELS`), shows the
+  Target/Modifier rows per `ACTION_TARGETS` / `ACTION_MODIFIERS`, the Rank box
+  for a ranked `/cast`, the slot radios for a two-slot `/equip`, re-anchors so
+  hidden rows leave no gap, and calls `UpdateHeight()`.
+- `MacroBuilder:RefreshList()` → fills the list from `LIST_SOURCES[action]`
+  (filtered by the search box via `ns.MacroData.Filter`).
+- `MacroBuilder:UpdateHeight()` → sizes the window to the unfiltered list
+  (capped at `MAX_LIST_ROWS`) minus any hidden rows.
 
 State fields: `self.action`, `self.target`, `self.modifier`, `self.rankN`,
-`self.rankPrefix`, `self.selectedKey`.
+`self.rankPrefix`, `self.equipLoc`, `self.equipSlot`, `self.selectedKey`,
+`self.selectedListName`.
 
 ## Task: add a Target option
 
 1. Add an entry to the `TARGETS` table: `{ key, text, desc }`. `key` becomes
    the `@<key>` token in the clause (so it must be a valid unit id — verify in
-   the source, e.g. `pet`, `targettarget`). `text` is the dropdown label;
+   the source, e.g. `pet`, `targettarget`, or a special token like `cursor`).
+   `text` is the dropdown label;
    `desc` is the hover tooltip.
 2. Add a `TARGET_PHRASE[key]` entry (the human phrase for `Describe`, e.g.
    `"on your pet"`).
@@ -77,22 +89,29 @@ State fields: `self.action`, `self.target`, `self.modifier`, `self.rankN`,
 This is the bigger change. An action = a dropdown choice with its own data
 list and its own command verb.
 
-1. **`ACTIONS` table** — add `{ key, text }`.
-2. **Data source** — add a pure enumerator like `MacroBuilder.KnownSpells()` /
-   `MacroBuilder.BagItems()` that returns sorted
-   `{ key, name, icon, ... }` items. Verify any API (spellbook, bags, etc.)
-   against the source first. De-dupe; keep it UI-free.
-3. **`RefreshList`** — branch on `self.action` to call your new enumerator.
-4. **`Compose`** — add the verb/formatting for the new action (follow the
-   `/cast` vs `/use` branch). Keep it pure.
-5. **`Describe`** — add the matching human phrasing.
-6. **`UpdateVisibility`** — set the name-box label for the action, and show/hide
-   any action-specific extras (the Rank box is the existing example; it keys off
-   `self.action ~= "use"` and `self.rankPrefix`).
-7. **Name box `OnTextChanged`** — if the action needs something derived from the
-   typed name (as `/cast` derives `rankPrefix` via `MacroBuilder.RankPrefix`),
-   add it there, guarded by `self.action`.
-8. **Shift-click** (optional) — the hook on `ChatFrameUtil.InsertLink` fills the
+1. **`ACTIONS` table** — add `{ key, text }`. For an action that drives
+   another addon, add `requiresAddOn` + `disabledDesc`; the dropdown grays it
+   out (see the ItemRack entry and `MacroBuilder.HasItemRack`).
+2. **Conditionals** — add the key to `ACTION_TARGETS` and/or
+   `ACTION_MODIFIERS` only if the command's slash handler parses
+   `[conditionals]` (Blizzard's secure commands do; addon commands like
+   `/emu send` and `/itemrack` don't).
+3. **Data source** — add a pure enumerator like `MacroBuilder.KnownSpells()` /
+   `MacroBuilder.UsableItems()` / `MacroBuilder.EquippableItems()` that returns
+   sorted `{ key, name, icon, note?, ... }` items (`note` shows muted after the
+   name, e.g. "(equipped)"). Verify any API against the source first. De-dupe;
+   keep it UI-free.
+4. **`LIST_SOURCES`** — add `{ fetch, noun }` for the action.
+5. **`Compose`** / **`Describe`** — add the verb/formatting and matching human
+   phrasing. Keep both pure.
+6. **`HINTS`** and **`NAME_LABELS`** — the empty-preview hint and name-box label.
+7. **List-only?** — if the name must come from the list (no typing), extend
+   `MacroBuilder:IsListOnly()`.
+8. **Extras** — action-specific controls follow the Rank box / slot radios
+   pattern: create them in `Create()`, show/hide them in `UpdateVisibility`,
+   and derive their state from the name in the name box's `OnTextChanged`
+   (as `RankPrefix` and `UpdateItemDetails` do).
+9. **Shift-click** (optional) — the hook on `ChatFrameUtil.InsertLink` fills the
    name box from `|Hitem:|`/`|Hspell:|` links. Extend it if the new action has a
    natural shift-click source; keep it a `hooksecurefunc` post-hook (no taint).
 
@@ -100,8 +119,8 @@ list and its own command verb.
 
 The builder never saves. `MacroBuilder:Insert()` calls
 `ns.Editor:InsertBodyLine(line)` (in [`Editor.lua`](../../../Editor.lua)), which
-appends a new line to the draft and refuses if it would exceed the 255-char
-limit. Don't bypass this.
+appends the text (one or more lines) to the draft and refuses if it would
+exceed the 255-char limit. Don't bypass this.
 
 ## Finish
 
