@@ -152,6 +152,42 @@ function Messages.Duplicate(id)
 	return msg
 end
 
+-- Imports a message entry { name, content, outputs }. `conflict` "override"
+-- replaces the content/outputs of the first message with the same name
+-- (case-insensitive); otherwise a new message is created under a unique name.
+-- Returns true, or false + reason.
+function Messages.Import(entry, conflict)
+	if not entry or ns.IsBlank(entry.name) then
+		return false, "missing name"
+	end
+	local outputs = {}
+	for _, o in ipairs(entry.outputs or {}) do
+		local copy = { chatType = o.chatType }
+		if o.channel then
+			copy.channel = o.channel
+		end
+		outputs[#outputs + 1] = copy
+	end
+	if conflict == "override" then
+		local existing = Messages.FindByName(entry.name)
+		if existing then
+			existing.content = entry.content or ""
+			existing.outputs = outputs
+			return true
+		end
+	end
+	local db = ns.db
+	local id = db.nextMessageId or 1
+	db.nextMessageId = id + 1
+	tinsert(db.messages, {
+		id = id,
+		name = Messages.UniqueName(entry.name),
+		content = entry.content or "",
+		outputs = outputs,
+	})
+	return true
+end
+
 function Messages.Delete(id)
 	local list = Messages.All()
 	for i = #list, 1, -1 do

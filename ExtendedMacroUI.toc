@@ -2,7 +2,7 @@
 ## Title: Extended Macro UI
 ## Notes: A replacement macro window for WoW Classic.
 ## Author: danburkhol
-## Version: 0.9.0
+## Version: 0.10.0
 ## SavedVariables: ExtendedMacroUIDB
 
 Core.lua
@@ -13,3 +13,5 @@ MessageEditor.lua
 MainFrame.lua
 IconPicker.lua
 MacroBuilder.lua
+Transfer.lua
+TransferWizard.lua

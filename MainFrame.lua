@@ -27,6 +27,8 @@ local MAIN_WIDTH, MAIN_HEIGHT = 552, 424
 local LEFT_PANE_WIDTH = 200
 local ROW_HEIGHT = 24
 local QUESTION_MARK_ICON = 134400
+-- Import/Export header button glyph (a note icon, cropped like other icons).
+local TRANSFER_GLYPH = "|TInterface\\Icons\\INV_Misc_Note_01:14:14:0:0:64:64:5:59:5:59|t"
 
 -- A third tab id alongside MacroData.ACCOUNT / MacroData.CHARACTER.
 local MESSAGES = "messages"
@@ -402,6 +404,16 @@ function MainFrame:Create()
 	ns.SetTooltip(optionsButton, "Open Extended Macro UI settings.")
 	self.optionsButton = optionsButton
 
+	-- Import/Export button left of the gear; toggles the transfer wizard.
+	local transferButton = ns.CreateButton(frame, TRANSFER_GLYPH, 24, 20, function()
+		if ns.TransferWizard then
+			ns.TransferWizard:Toggle()
+		end
+	end)
+	transferButton:SetPoint("RIGHT", optionsButton, "LEFT", -2, 0)
+	ns.SetTooltip(transferButton, "Import / Export macros and saved messages.")
+	self.transferButton = transferButton
+
 	-- Movability/registration is set per mode by ns.ApplyLayoutMode(); dragging
 	-- only does anything in free-floating mode.
 	frame:SetClampedToScreen(true)
@@ -438,6 +450,9 @@ function MainFrame:Create()
 		end
 		if ns.MacroBuilder then
 			ns.MacroBuilder:Close()
+		end
+		if ns.TransferWizard then
+			ns.TransferWizard:Close()
 		end
 	end)
 	frame:SetScript("OnEvent", function(_, event)
@@ -638,6 +653,36 @@ function MainFrame:ShowDupTooltip(dupButton)
 		GameTooltip:AddLine("Duplicate this macro.", 1, 1, 1, true)
 	end
 	GameTooltip:Show()
+end
+
+-- A snapshot of the selected macro, so the selection can be re-resolved after
+-- an import creates macros (which shifts indices). nil on the Messages tab.
+function MainFrame:SelectionSnapshot()
+	if self:IsMessages() then
+		return nil
+	end
+	local key = state.selected[state.tab]
+	if not key then
+		return nil
+	end
+	local name, icon, body = GetMacroInfo(key)
+	if not name then
+		return nil
+	end
+	return { name = name, icon = icon, body = body }
+end
+
+-- Rebuilds the list and reloads the editor after an import changed data
+-- behind its back.
+function MainFrame:ReloadAfterImport(snap)
+	if snap then
+		local index = MacroData.FindBySnapshot(state.tab, snap)
+		if index then
+			state.selected[state.tab] = index
+		end
+	end
+	self:Refresh()
+	self:DoSelectKey(state.selected[state.tab])
 end
 
 function MainFrame:SetSelectedKey(key)

@@ -192,6 +192,9 @@ function IconPicker:Open()
 	if ns.MacroBuilder then
 		ns.MacroBuilder:Close()
 	end
+	if ns.TransferWizard then
+		ns.TransferWizard:Close()
+	end
 	self.selectedIcon = draft.icon
 	self.preview:SetTexture(draft.icon)
 	self:RefreshGrid()

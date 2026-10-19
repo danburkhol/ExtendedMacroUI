@@ -116,6 +116,14 @@ read_globals = {
 	"ShowUIPanel",
 	"HideUIPanel",
 	"C_AddOns",
+	-- Import / export (encoding, metadata, error reporting)
+	"C_EncodingUtil",
+	"Enum",
+	"GetRealmName",
+	"GetServerTime",
+	"geterrorhandler",
+	"date",
+	"strlenutf8",
 	-- Settings (options panel)
 	"Settings",
 	"MinimalSliderWithSteppersMixin",

@@ -561,6 +561,14 @@ local function Initialize()
 		ns.Print("Macro builder failed to load: " .. tostring(errBuilder))
 	end
 
+	-- Same isolation for the import/export wizard.
+	local okTransfer, errTransfer = pcall(function()
+		ns.TransferWizard:Create()
+	end)
+	if not okTransfer then
+		ns.Print("Import/Export wizard failed to load: " .. tostring(errTransfer))
+	end
+
 	-- If Blizzard's macro UI is already loaded, add our EMU button now;
 	-- otherwise the loader adds it when Blizzard_MacroUI loads.
 	EnsureNativeButton()

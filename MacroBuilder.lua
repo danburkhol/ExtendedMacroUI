@@ -34,6 +34,19 @@ local NUM_BAGS = NUM_BAG_SLOTS or 4
 
 local BUILDER_WIDTH, BUILDER_HEIGHT = 380, 560
 local ROW_HEIGHT = 20
+
+-- The window's height follows the list's contents instead of being fixed.
+-- ButtonFrameTemplate's Inset sits 60px below the top and 26px above the
+-- bottom, so frame height = inset content height + INSET_CHROME.
+local INSET_CHROME = 86
+-- Fixed inset space above the list (action dropdown + search box) and below it
+-- (name box, target/modifier/rank rows and the preview; the saved-message
+-- action hides everything but the preview), plus the list box's own padding.
+local LIST_TOP = 91
+local BELOW_LIST_FULL = 248
+local BELOW_LIST_MESSAGE = 90
+local LIST_CHROME = 12
+local MIN_LIST_ROWS, MAX_LIST_ROWS = 4, 8
 local QUESTION_MARK_ICON = 134400
 
 local MacroBuilder = {}
@@ -302,6 +315,7 @@ function MacroBuilder:RefreshList()
 		items = MacroBuilder.KnownSpells()
 	end
 	self.allItems = items
+	self:UpdateHeight()
 	local filtered = ns.MacroData.Filter(items, self.query or "")
 	self.scrollBox:SetDataProvider(CreateDataProvider(filtered), true)
 
@@ -319,6 +333,18 @@ function MacroBuilder:RefreshList()
 			self.emptyText:Hide()
 		end
 	end
+end
+
+-- Sizes the window to the (unfiltered) list, so it fits short lists and doesn't
+-- jump while searching; long lists cap at MAX_LIST_ROWS and scroll.
+function MacroBuilder:UpdateHeight()
+	if not self.frame then
+		return
+	end
+	local count = self.allItems and #self.allItems or 0
+	local rows = math.min(math.max(count, MIN_LIST_ROWS), MAX_LIST_ROWS)
+	local below = (self.action == "message") and BELOW_LIST_MESSAGE or BELOW_LIST_FULL
+	self.frame:SetHeight(LIST_TOP + rows * ROW_HEIGHT + LIST_CHROME + below + INSET_CHROME)
 end
 
 function MacroBuilder:UpdateListSelection()
@@ -407,6 +433,15 @@ function MacroBuilder:UpdateVisibility()
 	local showName = not isMessage
 	self.nameLabel:SetShown(showName)
 	self.nameBox:SetShown(showName)
+
+	-- With the name/conditional rows hidden, end the list just above the
+	-- preview so no empty gap is left (UpdateHeight shrinks the window to match).
+	if self.listBox then
+		self.listBox:ClearAllPoints()
+		self.listBox:SetPoint("TOPLEFT", self.search, "BOTTOMLEFT", -2, -6)
+		self.listBox:SetPoint("TOPRIGHT", self.search, "BOTTOMRIGHT", 2, -6)
+		self.listBox:SetPoint("BOTTOM", isMessage and self.previewLabel or self.nameLabel, "TOP", 0, 8)
+	end
 
 	-- Targeting/modifier conditionals apply to /cast and /use, not /emu send.
 	local showConds = not isMessage
@@ -513,6 +548,7 @@ function MacroBuilder:Create()
 	local previewLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	previewLabel:SetPoint("BOTTOMLEFT", preview, "TOPLEFT", 0, 4)
 	previewLabel:SetText("Preview")
+	self.previewLabel = previewLabel
 
 	-- Rank box (spells with ranks only).
 	local rankLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
@@ -621,6 +657,7 @@ function MacroBuilder:Create()
 	box:SetPoint("TOPLEFT", search, "BOTTOMLEFT", -2, -6)
 	box:SetPoint("TOPRIGHT", search, "BOTTOMRIGHT", 2, -6)
 	box:SetPoint("BOTTOM", nameLabel, "TOP", 0, 8)
+	self.listBox = box
 
 	local emptyText = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	emptyText:SetPoint("LEFT", box, "LEFT", 14, 0)
@@ -695,6 +732,9 @@ function MacroBuilder:Open()
 	-- The icon picker shares the dock slot; only one side panel at a time.
 	if ns.IconPicker then
 		ns.IconPicker:Close()
+	end
+	if ns.TransferWizard then
+		ns.TransferWizard:Close()
 	end
 	self:RefreshList()
 	self:UpdateListSelection()
