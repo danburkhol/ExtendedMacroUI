@@ -28,6 +28,7 @@ local GetInventoryItemID = GetInventoryItemID
 local GetInventoryItemLink = GetInventoryItemLink
 local GetInventoryItemTexture = GetInventoryItemTexture
 local C_AddOns = C_AddOns
+local GameTooltip = GameTooltip
 local sort = table.sort
 local concat = table.concat
 local strtrim = strtrim
@@ -169,6 +170,7 @@ function MacroBuilder.KnownSpells()
 							name = name,
 							icon = GetSpellTexture(slot, BOOKTYPE_SPELL) or QUESTION_MARK_ICON,
 							spellID = id,
+							bookSlot = slot, -- for the hover tooltip
 						}
 					end
 				end
@@ -191,7 +193,7 @@ end
 -- bag copy).
 local function InventoryItems(accept)
 	local list, seen = {}, {}
-	local function add(itemID, link, icon, wornSlot)
+	local function add(itemID, link, icon, wornSlot, bag, bagSlot)
 		if not itemID or seen[itemID] then
 			return
 		end
@@ -207,6 +209,8 @@ local function InventoryItems(accept)
 			equipLoc = select(4, C_Item.GetItemInfoInstant(itemID)),
 			worn = wornSlot ~= nil,
 			wornSlot = wornSlot,
+			bag = bag, -- bag + bagSlot: where it sits, for the hover tooltip
+			bagSlot = bagSlot,
 			note = wornSlot and "(equipped)" or nil,
 		}
 		if accept(entry) then
@@ -225,7 +229,7 @@ local function InventoryItems(accept)
 		for slot = 1, slots do
 			local info = C_Container.GetContainerItemInfo(bag, slot)
 			if info then
-				add(info.itemID, info.hyperlink, info.iconFileID, nil)
+				add(info.itemID, info.hyperlink, info.iconFileID, nil, bag, slot)
 			end
 		end
 	end
@@ -470,6 +474,41 @@ end
 -- List
 --------------------------------------------------------------------------------
 
+-- Shows the game tooltip for a list entry, docked to the right of the builder
+-- so it never covers the list. Uses the most specific source available: the
+-- worn slot or bag slot (shows enchants and durability), else the item or
+-- spell id. Entries without one (saved messages, ItemRack sets) get none.
+local function ShowEntryTooltip(data)
+	local frame = MacroBuilder.frame
+	if not (frame and data) then
+		return
+	end
+	GameTooltip:SetOwner(frame, "ANCHOR_NONE")
+	GameTooltip:ClearAllPoints()
+	GameTooltip:SetPoint("TOPLEFT", frame, "TOPRIGHT", 4, 0)
+	if data.wornSlot then
+		GameTooltip:SetInventoryItem("player", data.wornSlot)
+	elseif data.bag and data.bagSlot then
+		GameTooltip:SetBagItem(data.bag, data.bagSlot)
+	elseif data.itemID then
+		GameTooltip:SetItemByID(data.itemID)
+	elseif data.bookSlot then
+		GameTooltip:SetSpellBookItem(data.bookSlot, BOOKTYPE_SPELL)
+	elseif data.spellID then
+		GameTooltip:SetSpellByID(data.spellID)
+	else
+		GameTooltip:Hide()
+		return
+	end
+	GameTooltip:Show()
+end
+
+local function HideEntryTooltip()
+	if MacroBuilder.frame and GameTooltip:IsOwned(MacroBuilder.frame) then
+		GameTooltip:Hide()
+	end
+end
+
 local function InitListButton(button, data)
 	if not button.created then
 		button.created = true
@@ -490,6 +529,10 @@ local function InitListButton(button, data)
 		button:SetScript("OnClick", function(self)
 			MacroBuilder:SelectEntry(self.data)
 		end)
+		button:SetScript("OnEnter", function(self)
+			ShowEntryTooltip(self.data)
+		end)
+		button:SetScript("OnLeave", HideEntryTooltip)
 	end
 
 	button.data = data
@@ -1007,6 +1050,7 @@ function MacroBuilder:Create()
 		frame:UnregisterEvent("SPELLS_CHANGED")
 		frame:UnregisterEvent("BAG_UPDATE_DELAYED")
 		frame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
+		HideEntryTooltip()
 	end)
 	frame:SetScript("OnEvent", function()
 		MacroBuilder:RefreshList()
