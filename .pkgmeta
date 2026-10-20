@@ -12,3 +12,4 @@ ignore:
   - .gitignore
   - .claude
   - .github
+  - docs
