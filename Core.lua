@@ -304,6 +304,7 @@ local DB_DEFAULTS = {
 	messages = {}, -- saved chat messages (outside the macro system; no slots)
 	nextMessageId = 1, -- monotonic id source for saved messages
 	sendInterval = 15, -- anti-spam: min seconds between any two message sends
+	minimap = { hide = false }, -- LibDBIcon state (shown + position)
 }
 
 local function CopyDefaults(dst, src)
@@ -577,6 +578,27 @@ local function BuildOptions()
 		.. "Off (default): /macro opens Blizzard's macro window."
 	Settings.CreateCheckbox(category, takeoverSetting, takeoverTooltip)
 
+	-- Minimap button (LibDBIcon); the broker entry in Titan Panel etc. is
+	-- managed by those addons.
+	local function GetMinimap()
+		return not (ns.db.minimap and ns.db.minimap.hide)
+	end
+	local function SetMinimap(value)
+		if ns.Broker then
+			ns.Broker:SetMinimapShown(value)
+		else
+			ns.db.minimap.hide = not value
+		end
+	end
+	local minimapSetting = Settings.RegisterProxySetting(category, "EXTENDEDMACROUI_MINIMAP",
+		Settings.VarType.Boolean, "Show minimap button",
+		Settings.Default.True, GetMinimap, SetMinimap)
+	local minimapTooltip = "Show the Extended Macro UI button on the minimap."
+		.. " Left-click it to open the window; right-click it to send a saved message.\n\n"
+		.. "The same launcher is also available to Titan Panel and other data-broker"
+		.. " displays, whether or not the minimap button is shown."
+	Settings.CreateCheckbox(category, minimapSetting, minimapTooltip)
+
 	-- Anti-spam: the minimum seconds between any two saved-message sends
 	-- (slider, so the Settings API clamps it to [MIN, MAX]).
 	if Settings.CreateSlider and Settings.CreateSliderOptions then
@@ -686,6 +708,14 @@ local function Initialize()
 	end)
 	if not okBuilder then
 		ns.Print("Macro builder failed to load: " .. tostring(errBuilder))
+	end
+
+	-- Data broker launcher + minimap button.
+	local okBroker, errBroker = pcall(function()
+		ns.Broker:Initialize()
+	end)
+	if not okBroker then
+		ns.Print("Minimap/broker button failed to load: " .. tostring(errBroker))
 	end
 
 	-- Same isolation for the import/export wizard.

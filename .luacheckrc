@@ -1,6 +1,9 @@
 std = "lua51"
 max_line_length = false
 
+-- Lint only our own code: not the embedded libraries or the Blizzard source clone.
+exclude_files = { "Libs/**", "wow-ui-source/**" }
+
 -- 211/ADDON_NAME: every file starts with `local ADDON_NAME, ns = ...` by
 -- convention (CLAUDE.md); some files don't use the name.
 -- 212/self: methods defined with `:` that don't need self.
@@ -136,6 +139,9 @@ read_globals = {
 	"geterrorhandler",
 	"date",
 	"strlenutf8",
+	-- Data broker / minimap button (embedded libs)
+	"LibStub",
+	"MenuUtil",
 	-- Settings (options panel)
 	"Settings",
 	"MinimalSliderWithSteppersMixin",

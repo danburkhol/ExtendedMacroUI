@@ -19,7 +19,19 @@ Anniversary). It provides a tabbed, two-pane layout:
   built with the client's own `C_EncodingUtil`; the payload records the
   exporting character, realm, timestamp and addon version.
 
-Open it with `/emu`. See `/emu help` for the other sub-commands.
+- **Minimap button / data broker** — a LibDataBroker launcher (shown by Titan
+  Panel and other broker displays) plus an optional LibDBIcon minimap button
+  (on by default; toggle it in the EMU settings). Left-click opens the window;
+  right-click opens a menu that sends a Saved Message.
+
+Open it with `/emu`.
+
+## Embedded libraries
+
+`Libs/` holds unmodified copies of LibStub, CallbackHandler-1.0,
+LibDataBroker-1.1 and LibDBIcon-1.0, loaded by the TOC. LibStub loads only the
+newest copy across all installed addons, so these never conflict with other
+addons' copies. See `/emu help` for the other sub-commands.
 
 ## Known issues
 
