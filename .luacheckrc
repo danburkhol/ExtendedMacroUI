@@ -1,8 +1,9 @@
 std = "lua51"
 max_line_length = false
 
--- Lint only our own code: not the embedded libraries or the Blizzard source clone.
-exclude_files = { "Libs/**", "wow-ui-source/**" }
+-- Lint only our own code: not the embedded libraries, the Blizzard source clone,
+-- the MessageBarker reference addon or the design assets (all local-only).
+exclude_files = { "Libs/**", "wow-ui-source/**", "MessageBarker/**", "design/**" }
 
 -- 211/ADDON_NAME: every file starts with `local ADDON_NAME, ns = ...` by
 -- convention (CLAUDE.md); some files don't use the name.
