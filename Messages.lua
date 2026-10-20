@@ -25,7 +25,6 @@ local INSTANCE = LE_PARTY_CATEGORY_INSTANCE
 local tinsert = tinsert
 local tremove = tremove
 local strtrim = strtrim
-local sort = table.sort
 local ceil = math.ceil
 
 -- Anti-spam default and floor; the EMU settings slider overrides the default
@@ -115,14 +114,41 @@ function Messages.UniqueName(base)
 	return base .. " " .. n
 end
 
--- Creates, stores and returns a new empty message with a unique name.
-function Messages.New(name)
+-- Shallow-copies an outputs array keeping only the persisted fields
+-- ({ chatType, channel? }), so stored messages never share output tables.
+function Messages.CopyOutputs(outputs)
+	local copy = {}
+	if outputs then
+		for _, o in ipairs(outputs) do
+			local entry = { chatType = o.chatType }
+			if o.channel then
+				entry.channel = o.channel
+			end
+			copy[#copy + 1] = entry
+		end
+	end
+	return copy
+end
+
+-- Stores and returns a new message under a unique version of `name`, with the
+-- next id. `outputs` is copied.
+local function Add(name, content, outputs)
 	local db = ns.db
 	local id = db.nextMessageId or 1
 	db.nextMessageId = id + 1
-	local msg = { id = id, name = Messages.UniqueName(name or "New Message"), content = "", outputs = {} }
+	local msg = {
+		id = id,
+		name = Messages.UniqueName(name),
+		content = content or "",
+		outputs = Messages.CopyOutputs(outputs),
+	}
 	tinsert(db.messages, msg)
 	return msg
+end
+
+-- Creates, stores and returns a new empty message with a unique name.
+function Messages.New(name)
+	return Add(name or "New Message", "", nil)
 end
 
 -- Creates a copy of message `id` (content + outputs) under a new unique name:
@@ -133,23 +159,7 @@ function Messages.Duplicate(id)
 	if not src then
 		return nil
 	end
-	local base = ns.NameWithSuffix(src.name, " Copy", NAME_MAX)
-	local outputs = {}
-	if src.outputs then
-		for _, o in ipairs(src.outputs) do
-			local entry = { chatType = o.chatType }
-			if o.channel then
-				entry.channel = o.channel
-			end
-			outputs[#outputs + 1] = entry
-		end
-	end
-	local db = ns.db
-	local newId = db.nextMessageId or 1
-	db.nextMessageId = newId + 1
-	local msg = { id = newId, name = Messages.UniqueName(base), content = src.content or "", outputs = outputs }
-	tinsert(db.messages, msg)
-	return msg
+	return Add(ns.NameWithSuffix(src.name, " Copy", NAME_MAX), src.content, src.outputs)
 end
 
 -- Imports a message entry { name, content, outputs }. `conflict` "override"
@@ -160,31 +170,15 @@ function Messages.Import(entry, conflict)
 	if not entry or ns.IsBlank(entry.name) then
 		return false, "missing name"
 	end
-	local outputs = {}
-	for _, o in ipairs(entry.outputs or {}) do
-		local copy = { chatType = o.chatType }
-		if o.channel then
-			copy.channel = o.channel
-		end
-		outputs[#outputs + 1] = copy
-	end
 	if conflict == "override" then
 		local existing = Messages.FindByName(entry.name)
 		if existing then
 			existing.content = entry.content or ""
-			existing.outputs = outputs
+			existing.outputs = Messages.CopyOutputs(entry.outputs)
 			return true
 		end
 	end
-	local db = ns.db
-	local id = db.nextMessageId or 1
-	db.nextMessageId = id + 1
-	tinsert(db.messages, {
-		id = id,
-		name = Messages.UniqueName(entry.name),
-		content = entry.content or "",
-		outputs = outputs,
-	})
+	Add(entry.name, entry.content, entry.outputs)
 	return true
 end
 
@@ -207,14 +201,7 @@ function Messages.ListItems()
 	for _, m in ipairs(Messages.All()) do
 		items[#items + 1] = { key = m.id, name = m.name }
 	end
-	sort(items, function(a, b)
-		local an, bn = a.name:lower(), b.name:lower()
-		if an == bn then
-			return a.key < b.key
-		end
-		return an < bn
-	end)
-	return items
+	return ns.SortByName(items)
 end
 
 -- First message whose name matches `name` case-insensitively (names aren't

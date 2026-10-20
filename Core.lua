@@ -6,6 +6,9 @@ local UIParent = UIParent
 local DEFAULT_CHAT_FRAME = DEFAULT_CHAT_FRAME
 local InCombatLockdown = InCombatLockdown
 local GameTooltip = GameTooltip
+local CreateScrollBoxListLinearView = CreateScrollBoxListLinearView
+local ScrollUtil = ScrollUtil
+local sort = table.sort
 
 local CHAT_PREFIX = "|cffffd100Extended Macro UI:|r "
 
@@ -121,6 +124,130 @@ function ns.CreateScrollList(parent, rightInset)
 	scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 4, 0)
 
 	return box, scrollBox, scrollBar
+end
+
+-- Builds the standard one-column list view (fixed row height, 2px padding) on
+-- a CreateScrollList scrollBox/scrollBar pair. `initializer(button, data)`
+-- sets up each row. Returns the view.
+function ns.InitListView(scrollBox, scrollBar, rowHeight, initializer)
+	local view = CreateScrollBoxListLinearView()
+	view:SetElementExtent(rowHeight)
+	view:SetElementInitializer("Button", initializer)
+	view:SetPadding(2, 2, 2, 2, 2)
+	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	return view
+end
+
+-- The centered, muted empty-state line shown over a list box. Hidden; the
+-- owner sets its text and shows it when the list is empty.
+function ns.CreateEmptyText(box)
+	local emptyText = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	emptyText:SetPoint("LEFT", box, "LEFT", 14, 0)
+	emptyText:SetPoint("RIGHT", box, "RIGHT", -14, 0)
+	emptyText:SetJustifyH("CENTER")
+	ns.SetMutedText(emptyText)
+	emptyText:Hide()
+	return emptyText
+end
+
+-- ButtonFrameTemplate's Inset sits 60px below the frame's top and 26px above
+-- its bottom, so a window sized to its contents is content height + 86.
+local INSET_CHROME = 86
+function ns.SetInsetContentHeight(frame, height)
+	frame:SetHeight(height + INSET_CHROME)
+end
+
+-- A small radio button with a white label to its right. Callers anchor it and
+-- keep the group's checked state in sync.
+function ns.CreateRadio(parent, text, onClick)
+	local radio = CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")
+	radio.text:SetFontObject("GameFontHighlightSmall")
+	if text then
+		radio.text:SetText(text)
+	end
+	if onClick then
+		radio:SetScript("OnClick", onClick)
+	end
+	return radio
+end
+
+-- Gives a Menu element description (e.g. a dropdown radio) a title +
+-- description hover tooltip.
+function ns.SetMenuTooltip(description, title, text)
+	description:SetTooltip(function(tooltip)
+		GameTooltip_SetTitle(tooltip, title)
+		GameTooltip_AddNormalLine(tooltip, text)
+	end)
+end
+
+-- Escapes "|" as "||" so user text displays literally instead of being read
+-- as color or link codes.
+function ns.EscapePipes(text)
+	return (tostring(text or ""):gsub("|", "||"))
+end
+
+-- Case-insensitive A->Z on .name; equal names fall back to .key (when both
+-- have one) so the order is stable.
+local function ByName(a, b)
+	local an, bn = a.name:lower(), b.name:lower()
+	if an == bn and a.key ~= nil and b.key ~= nil and type(a.key) == type(b.key) then
+		return a.key < b.key
+	end
+	return an < bn
+end
+
+-- Sorts a list of { name, key?, ... } items A->Z (see ByName). Returns it.
+function ns.SortByName(list)
+	sort(list, ByName)
+	return list
+end
+
+-- The default "?" macro icon (INV_Misc_QuestionMark).
+ns.QUESTION_MARK_ICON = 134400
+
+--------------------------------------------------------------------------------
+-- Docked side panels
+--------------------------------------------------------------------------------
+
+-- The icon picker, macro builder and import/export wizard all dock in the same
+-- slot right of the main window, so only one is open at a time. Each panel
+-- registers here, gets IsShown/Close/Toggle, and implements its own Open
+-- (which calls ns.CloseDockPanels(self) first).
+local dockPanels = {}
+
+local DockPanelMixin = {}
+
+function DockPanelMixin:IsShown()
+	return self.frame and self.frame:IsShown()
+end
+
+function DockPanelMixin:Close()
+	if self.frame then
+		self.frame:Hide()
+	end
+end
+
+function DockPanelMixin:Toggle()
+	if self:IsShown() then
+		self:Close()
+	else
+		self:Open()
+	end
+end
+
+function ns.RegisterDockPanel(panel)
+	Mixin(panel, DockPanelMixin)
+	dockPanels[#dockPanels + 1] = panel
+	return panel
+end
+
+-- Closes every docked panel except `except` (nil closes them all).
+function ns.CloseDockPanels(except)
+	for _, panel in ipairs(dockPanels) do
+		if panel ~= except then
+			panel:Close()
+		end
+	end
 end
 
 -- Adds the standard row visuals to a list button: a gold "selected" background

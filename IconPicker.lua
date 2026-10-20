@@ -20,7 +20,7 @@ local FILTERS = {
 	{ key = "items", text = "Item Icons" },
 }
 
-local IconPicker = {}
+local IconPicker = ns.RegisterDockPanel({})
 ns.IconPicker = IconPicker
 
 IconPicker.filter = "all"
@@ -167,10 +167,6 @@ end
 -- Open / close / apply
 --------------------------------------------------------------------------------
 
-function IconPicker:IsShown()
-	return self.frame and self.frame:IsShown()
-end
-
 function IconPicker:SetFilter(filter)
 	self.filter = filter
 	self:RefreshGrid()
@@ -188,31 +184,12 @@ function IconPicker:Open()
 	if not draft then
 		return
 	end
-	-- The macro builder shares the dock slot; only one side panel at a time.
-	if ns.MacroBuilder then
-		ns.MacroBuilder:Close()
-	end
-	if ns.TransferWizard then
-		ns.TransferWizard:Close()
-	end
+	-- One docked side panel at a time.
+	ns.CloseDockPanels(self)
 	self.selectedIcon = draft.icon
 	self.preview:SetTexture(draft.icon)
 	self:RefreshGrid()
 	self.frame:Show()
-end
-
-function IconPicker:Close()
-	if self.frame then
-		self.frame:Hide()
-	end
-end
-
-function IconPicker:Toggle()
-	if self:IsShown() then
-		self:Close()
-	else
-		self:Open()
-	end
 end
 
 function IconPicker:Okay()

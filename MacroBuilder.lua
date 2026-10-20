@@ -11,8 +11,6 @@ local ADDON_NAME, ns = ...
 
 local CreateFrame = CreateFrame
 local CreateDataProvider = CreateDataProvider
-local CreateScrollBoxListLinearView = CreateScrollBoxListLinearView
-local ScrollUtil = ScrollUtil
 local C_Spell = C_Spell
 local C_Item = C_Item
 local C_Container = C_Container
@@ -29,7 +27,6 @@ local GetInventoryItemLink = GetInventoryItemLink
 local GetInventoryItemTexture = GetInventoryItemTexture
 local C_AddOns = C_AddOns
 local GameTooltip = GameTooltip
-local sort = table.sort
 local concat = table.concat
 local strtrim = strtrim
 
@@ -42,10 +39,7 @@ local LAST_EQUIPPED = INVSLOT_LAST_EQUIPPED or 19
 local BUILDER_WIDTH, BUILDER_HEIGHT = 380, 560
 local ROW_HEIGHT = 20
 
--- The window's height follows the list's contents instead of being fixed.
--- ButtonFrameTemplate's Inset sits 60px below the top and 26px above the
--- bottom, so frame height = inset content height + INSET_CHROME.
-local INSET_CHROME = 86
+-- The window's height follows the list's contents (ns.SetInsetContentHeight).
 -- Fixed inset space above the list (action dropdown + search box) and below it
 -- (name box, target/modifier/rank rows and the preview; the saved-message
 -- action hides everything but the preview), plus the list box's own padding.
@@ -56,9 +50,9 @@ local LIST_CHROME = 12
 local MIN_LIST_ROWS, MAX_LIST_ROWS = 4, 8
 -- Height of the Target row, collapsed for actions that take no target.
 local TARGET_ROW_HEIGHT = 48
-local QUESTION_MARK_ICON = 134400
+local QUESTION_MARK_ICON = ns.QUESTION_MARK_ICON
 
-local MacroBuilder = {}
+local MacroBuilder = ns.RegisterDockPanel({})
 ns.MacroBuilder = MacroBuilder
 
 -- One of the ACTIONS keys.
@@ -177,8 +171,7 @@ function MacroBuilder.KnownSpells()
 			end
 		end
 	end
-	sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
-	return list
+	return ns.SortByName(list)
 end
 
 -- Extracts the item name from a container item's hyperlink ("[Name]"). The
@@ -233,8 +226,7 @@ local function InventoryItems(accept)
 			end
 		end
 	end
-	sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
-	return list
+	return ns.SortByName(list)
 end
 
 -- Every item (worn or in bags) with an on-use spell (C_Item.GetItemSpell
@@ -288,8 +280,7 @@ function MacroBuilder.ItemRackSets()
 			list[#list + 1] = { key = name, name = name, icon = icon or QUESTION_MARK_ICON }
 		end
 	end
-	sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
-	return list
+	return ns.SortByName(list)
 end
 
 -- The equip location for an item name, plus the slot it's worn in (if worn):
@@ -610,7 +601,7 @@ function MacroBuilder:UpdateHeight()
 	else
 		below = BELOW_LIST_FULL
 	end
-	self.frame:SetHeight(LIST_TOP + rows * ROW_HEIGHT + LIST_CHROME + below + INSET_CHROME)
+	ns.SetInsetContentHeight(self.frame, LIST_TOP + rows * ROW_HEIGHT + LIST_CHROME + below)
 end
 
 function MacroBuilder:UpdateListSelection()
@@ -835,10 +826,7 @@ function MacroBuilder:Create()
 			-- Actions that drive another addon are grayed out without it.
 			if a.requiresAddOn == "ItemRack" and not MacroBuilder.HasItemRack() then
 				radio:SetEnabled(false)
-				radio:SetTooltip(function(tooltip)
-					GameTooltip_SetTitle(tooltip, a.text)
-					GameTooltip_AddNormalLine(tooltip, a.disabledDesc)
-				end)
+				ns.SetMenuTooltip(radio, a.text, a.disabledDesc)
 			end
 		end
 	end)
@@ -918,8 +906,7 @@ function MacroBuilder:Create()
 
 	self.slotRadios = {}
 	for i = 1, 2 do
-		local radio = CreateFrame("CheckButton", nil, inset, "UIRadioButtonTemplate")
-		radio.text:SetFontObject("GameFontHighlightSmall")
+		local radio = ns.CreateRadio(inset)
 		if i == 1 then
 			radio:SetPoint("LEFT", slotLabel, "LEFT", 70, 0)
 		else
@@ -953,10 +940,7 @@ function MacroBuilder:Create()
 					MacroBuilder:UpdatePreview()
 				end)
 			if m.desc then
-				radio:SetTooltip(function(tooltip)
-					GameTooltip_SetTitle(tooltip, m.text)
-					GameTooltip_AddNormalLine(tooltip, m.desc)
-				end)
+				ns.SetMenuTooltip(radio, m.text, m.desc)
 			end
 		end
 	end)
@@ -981,10 +965,7 @@ function MacroBuilder:Create()
 					MacroBuilder:UpdatePreview()
 				end)
 			if t.desc then
-				radio:SetTooltip(function(tooltip)
-					GameTooltip_SetTitle(tooltip, t.text)
-					GameTooltip_AddNormalLine(tooltip, t.desc)
-				end)
+				ns.SetMenuTooltip(radio, t.text, t.desc)
 			end
 		end
 	end)
@@ -1024,19 +1005,9 @@ function MacroBuilder:Create()
 	box:SetPoint("BOTTOM", nameLabel, "TOP", 0, 8)
 	self.listBox = box
 
-	local emptyText = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	emptyText:SetPoint("LEFT", box, "LEFT", 14, 0)
-	emptyText:SetPoint("RIGHT", box, "RIGHT", -14, 0)
-	emptyText:SetJustifyH("CENTER")
-	ns.SetMutedText(emptyText)
-	emptyText:Hide()
-	self.emptyText = emptyText
+	self.emptyText = ns.CreateEmptyText(box)
 
-	local view = CreateScrollBoxListLinearView()
-	view:SetElementExtent(ROW_HEIGHT)
-	view:SetElementInitializer("Button", InitListButton)
-	view:SetPadding(2, 2, 2, 2, 2)
-	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	ns.InitListView(scrollBox, scrollBar, ROW_HEIGHT, InitListButton)
 	self.scrollBox = scrollBox
 
 	-- Keep the list fresh while open as the player learns spells or their bags
@@ -1090,40 +1061,17 @@ end
 -- Open / close / insert
 --------------------------------------------------------------------------------
 
-function MacroBuilder:IsShown()
-	return self.frame and self.frame:IsShown()
-end
-
 function MacroBuilder:Open()
 	if not self.frame then
 		return
 	end
-	-- The icon picker shares the dock slot; only one side panel at a time.
-	if ns.IconPicker then
-		ns.IconPicker:Close()
-	end
-	if ns.TransferWizard then
-		ns.TransferWizard:Close()
-	end
+	-- One docked side panel at a time.
+	ns.CloseDockPanels(self)
 	self:RefreshList()
 	self:UpdateListSelection()
 	self:UpdateVisibility()
 	self:UpdatePreview()
 	self.frame:Show()
-end
-
-function MacroBuilder:Close()
-	if self.frame then
-		self.frame:Hide()
-	end
-end
-
-function MacroBuilder:Toggle()
-	if self:IsShown() then
-		self:Close()
-	else
-		self:Open()
-	end
 end
 
 -- Appends the composed line to the macro editor's draft body.

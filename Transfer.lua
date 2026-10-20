@@ -46,7 +46,7 @@ local MACRO_NAME_MAX = 16
 local MACRO_BODY_MAX = 255
 local MESSAGE_NAME_MAX = 50
 local MESSAGE_CONTENT_MAX = 255
-local QUESTION_MARK_ICON = 134400
+local QUESTION_MARK_ICON = ns.QUESTION_MARK_ICON
 
 -- The chat types a saved message output may use (besides CHANNEL).
 local VALID_CHAT_TYPES = {}
@@ -70,19 +70,7 @@ local KIND_TAB = {
 -- Collecting (local data -> entries)
 --------------------------------------------------------------------------------
 
-local function CopyOutputs(outputs)
-	local copy = {}
-	if outputs then
-		for _, o in ipairs(outputs) do
-			local entry = { chatType = o.chatType }
-			if o.channel then
-				entry.channel = o.channel
-			end
-			copy[#copy + 1] = entry
-		end
-	end
-	return copy
-end
+local CopyOutputs = Messages.CopyOutputs
 
 -- The player's own macros and messages as entries, grouped by kind and sorted
 -- A->Z. Keys are unique across kinds so a selection set can mix them.
@@ -304,19 +292,18 @@ end
 -- shape as Transfer.LocalEntries so the wizard's browser handles both.
 function Transfer.PayloadEntries(payload)
 	local groups = { general = {}, character = {}, message = {} }
-	local function byName(a, b)
-		local an, bn = a.name:lower(), b.name:lower()
-		if an == bn then
-			return a.key < b.key
-		end
-		return an < bn
-	end
 	for _, kind in ipairs({ "general", "character" }) do
 		for i, m in ipairs(payload[kind]) do
 			local list = groups[kind]
-			list[#list + 1] = { kind = kind, key = kind .. ":" .. i, name = m.name, icon = m.icon, body = m.body }
+			list[#list + 1] = {
+				kind = kind,
+				key = ("%s:%04d"):format(kind, i),
+				name = m.name,
+				icon = m.icon,
+				body = m.body,
+			}
 		end
-		table.sort(groups[kind], byName)
+		ns.SortByName(groups[kind])
 	end
 	for i, m in ipairs(payload.messages) do
 		local list = groups.message
@@ -328,7 +315,7 @@ function Transfer.PayloadEntries(payload)
 			outputs = m.outputs,
 		}
 	end
-	table.sort(groups.message, byName)
+	ns.SortByName(groups.message)
 	return groups
 end
 

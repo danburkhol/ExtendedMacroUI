@@ -41,6 +41,17 @@ function Editor:LoadItem(key)
 	return self:LoadMacro(key)
 end
 
+-- Closes the macro-only docked panels (icon picker, macro builder). The
+-- import/export wizard isn't tied to a macro, so it stays open.
+local function CloseMacroPanels()
+	if ns.IconPicker then
+		ns.IconPicker:Close()
+	end
+	if ns.MacroBuilder then
+		ns.MacroBuilder:Close()
+	end
+end
+
 -- Hands the editor pane to (or away from) this editor as macro/message tabs are
 -- selected. When inactive it hides its contents and its secure Run button so
 -- the message editor can take over cleanly.
@@ -49,12 +60,7 @@ function Editor:SetActive(active)
 	if not active then
 		self.editArea:Hide()
 		self.prompt:Hide()
-		if ns.IconPicker then
-			ns.IconPicker:Close()
-		end
-		if ns.MacroBuilder then
-			ns.MacroBuilder:Close()
-		end
+		CloseMacroPanels()
 		self:UpdateRun()
 	end
 end
@@ -184,12 +190,7 @@ function Editor:LoadMacro(index)
 		self.body.EditBox:ClearFocus()
 		self.editArea:Hide()
 		self.prompt:Show()
-		if ns.IconPicker then
-			ns.IconPicker:Close()
-		end
-		if ns.MacroBuilder then
-			ns.MacroBuilder:Close()
-		end
+		CloseMacroPanels()
 		return
 	end
 

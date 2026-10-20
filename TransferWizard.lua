@@ -9,8 +9,6 @@ local ADDON_NAME, ns = ...
 
 local CreateFrame = CreateFrame
 local CreateDataProvider = CreateDataProvider
-local CreateScrollBoxListLinearView = CreateScrollBoxListLinearView
-local ScrollUtil = ScrollUtil
 local GameTooltip = GameTooltip
 local InCombatLockdown = InCombatLockdown
 local date = date
@@ -25,10 +23,7 @@ local WIZARD_WIDTH, WIZARD_HEIGHT = 400, 330
 local ROW_HEIGHT = 20
 local PREVIEW_HEIGHT = 110
 
--- The window's height follows the current page instead of being fixed.
--- ButtonFrameTemplate's Inset sits 60px below the top and 26px above the
--- bottom, so frame height = inset content height + INSET_CHROME.
-local INSET_CHROME = 86
+-- The window's height follows the current page (ns.SetInsetContentHeight).
 local CHOOSE_INSET_HEIGHT = 240
 local TEXT_PAGE_INSET_HEIGHT = 260 -- paste and result pages
 -- Select page: fixed space above the list (info, radios, group checks, search),
@@ -39,7 +34,7 @@ local SELECT_BOTTOM_IMPORT = 54
 local SELECT_BOTTOM_EXPORT = 10
 local MIN_LIST_ROWS, MAX_LIST_ROWS = 4, 12
 
-local Wizard = {}
+local Wizard = ns.RegisterDockPanel({})
 ns.TransferWizard = Wizard
 
 Wizard.mode = "export" -- or "import"
@@ -52,9 +47,7 @@ for _, o in ipairs(Messages.DefaultOutputs()) do
 	OUTPUT_DISPLAY[o.chatType] = o.display
 end
 
-local function Escape(text)
-	return (tostring(text or ""):gsub("|", "||"))
-end
+local Escape = ns.EscapePipes
 
 --------------------------------------------------------------------------------
 -- Selection
@@ -335,10 +328,6 @@ end
 -- Pages / navigation
 --------------------------------------------------------------------------------
 
-function Wizard:SetInsetHeight(height)
-	self.frame:SetHeight(height + INSET_CHROME)
-end
-
 -- Rows the select list would show unfiltered (headers + entries), so the
 -- window is sized to its contents and doesn't jump while searching.
 function Wizard:FullRowCount()
@@ -365,11 +354,11 @@ function Wizard:ShowPage(name)
 	end
 	local primary, back = self.primary, self.back
 	if name == "choose" then
-		self:SetInsetHeight(CHOOSE_INSET_HEIGHT)
+		ns.SetInsetContentHeight(self.frame, CHOOSE_INSET_HEIGHT)
 		primary:Hide()
 		back:Hide()
 	elseif name == "select" then
-		self:SetInsetHeight(self:SelectInsetHeight())
+		ns.SetInsetContentHeight(self.frame, self:SelectInsetHeight())
 		primary:Show()
 		back:Show()
 		local page = self.pages.select
@@ -387,14 +376,14 @@ function Wizard:ShowPage(name)
 		self:ShowPreview(self.pinned)
 		self:UpdateSelectControls()
 	elseif name == "paste" then
-		self:SetInsetHeight(TEXT_PAGE_INSET_HEIGHT)
+		ns.SetInsetContentHeight(self.frame, TEXT_PAGE_INSET_HEIGHT)
 		primary:Show()
 		primary:SetText("Next")
 		back:Show()
 		self.pasteError:SetText("")
 		self:UpdatePrimary()
 	elseif name == "result" then
-		self:SetInsetHeight(TEXT_PAGE_INSET_HEIGHT)
+		ns.SetInsetContentHeight(self.frame, TEXT_PAGE_INSET_HEIGHT)
 		primary:Show()
 		primary:SetText("Done")
 		primary.disabledReason = nil
@@ -520,14 +509,6 @@ local function CreatePage(parent)
 	return page
 end
 
-local function CreateRadio(parent, text, onClick)
-	local radio = CreateFrame("CheckButton", nil, parent, "UIRadioButtonTemplate")
-	radio.text:SetFontObject("GameFontHighlightSmall")
-	radio.text:SetText(text)
-	radio:SetScript("OnClick", onClick)
-	return radio
-end
-
 function Wizard:BuildChoosePage(inset)
 	local page = CreatePage(inset)
 
@@ -563,7 +544,7 @@ function Wizard:BuildSelectPage(inset)
 	info:SetJustifyV("TOP")
 	page.info = info
 
-	page.radioAll = CreateRadio(page, "Everything in these groups:", function() Wizard:SetAllMode(true) end)
+	page.radioAll = ns.CreateRadio(page, "Everything in these groups:", function() Wizard:SetAllMode(true) end)
 	page.radioAll:SetPoint("TOPLEFT", page, "TOPLEFT", 14, -42)
 
 	page.groupChecks = {}
@@ -581,7 +562,7 @@ function Wizard:BuildSelectPage(inset)
 		y = y - 20
 	end
 
-	page.radioSpecific = CreateRadio(page, "Only the items I check in the list:", function() Wizard:SetAllMode(false) end)
+	page.radioSpecific = ns.CreateRadio(page, "Only the items I check in the list:", function() Wizard:SetAllMode(false) end)
 	page.radioSpecific:SetPoint("TOPLEFT", page, "TOPLEFT", 14, y - 6)
 
 	local search = CreateFrame("EditBox", nil, page, "SearchBoxTemplate")
@@ -604,12 +585,12 @@ function Wizard:BuildSelectPage(inset)
 	local conflictLabel = conflict:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
 	conflictLabel:SetPoint("TOPLEFT", conflict, "TOPLEFT", 2, 0)
 	conflictLabel:SetText("If an item with the same name already exists:")
-	page.overrideRadio = CreateRadio(conflict, "Overwrite it", function()
+	page.overrideRadio = ns.CreateRadio(conflict, "Overwrite it", function()
 		Wizard.conflict = "override"
 		Wizard:UpdateSelectControls()
 	end)
 	page.overrideRadio:SetPoint("TOPLEFT", conflictLabel, "BOTTOMLEFT", 2, -6)
-	page.duplicateRadio = CreateRadio(conflict, "Add it as a copy", function()
+	page.duplicateRadio = ns.CreateRadio(conflict, "Add it as a copy", function()
 		Wizard.conflict = "duplicate"
 		Wizard:UpdateSelectControls()
 	end)
@@ -650,19 +631,9 @@ function Wizard:BuildSelectPage(inset)
 	box:SetPoint("RIGHT", page, "RIGHT", -12, 0)
 	box:SetPoint("BOTTOM", previewBox, "TOP", 0, 6)
 
-	local emptyText = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	emptyText:SetPoint("LEFT", box, "LEFT", 14, 0)
-	emptyText:SetPoint("RIGHT", box, "RIGHT", -14, 0)
-	emptyText:SetJustifyH("CENTER")
-	ns.SetMutedText(emptyText)
-	emptyText:Hide()
-	self.emptyText = emptyText
+	self.emptyText = ns.CreateEmptyText(box)
 
-	local view = CreateScrollBoxListLinearView()
-	view:SetElementExtent(ROW_HEIGHT)
-	view:SetElementInitializer("Button", InitRow)
-	view:SetPadding(2, 2, 2, 2, 2)
-	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	ns.InitListView(scrollBox, scrollBar, ROW_HEIGHT, InitRow)
 	self.scrollBox = scrollBox
 
 	return page
@@ -783,37 +754,14 @@ end
 -- Open / close
 --------------------------------------------------------------------------------
 
-function Wizard:IsShown()
-	return self.frame and self.frame:IsShown()
-end
-
 function Wizard:Open()
 	if not self.frame then
 		return
 	end
 	-- One docked side panel at a time.
-	if ns.IconPicker then
-		ns.IconPicker:Close()
-	end
-	if ns.MacroBuilder then
-		ns.MacroBuilder:Close()
-	end
+	ns.CloseDockPanels(self)
 	self.payload = nil
 	self.exportText = nil
 	self:ShowPage("choose")
 	self.frame:Show()
-end
-
-function Wizard:Close()
-	if self.frame then
-		self.frame:Hide()
-	end
-end
-
-function Wizard:Toggle()
-	if self:IsShown() then
-		self:Close()
-	else
-		self:Open()
-	end
 end

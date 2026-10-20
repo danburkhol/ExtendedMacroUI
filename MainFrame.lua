@@ -5,8 +5,6 @@ local UIParent = UIParent
 local PlaySound = PlaySound
 local SOUNDKIT = SOUNDKIT
 local CreateDataProvider = CreateDataProvider
-local CreateScrollBoxListLinearView = CreateScrollBoxListLinearView
-local ScrollUtil = ScrollUtil
 local PanelTemplates_SetNumTabs = PanelTemplates_SetNumTabs
 local PanelTemplates_SetTab = PanelTemplates_SetTab
 local PanelTemplates_TabResize = PanelTemplates_TabResize
@@ -26,7 +24,7 @@ local MAIN_FRAME_NAME = "ExtendedMacroUIFrame"
 local MAIN_WIDTH, MAIN_HEIGHT = 552, 424
 local LEFT_PANE_WIDTH = 200
 local ROW_HEIGHT = 24
-local QUESTION_MARK_ICON = 134400
+local QUESTION_MARK_ICON = ns.QUESTION_MARK_ICON
 -- Import/Export header button glyph (a note icon, cropped like other icons).
 local TRANSFER_GLYPH = "|TInterface\\Icons\\INV_Misc_Note_01:14:14:0:0:64:64:5:59:5:59|t"
 
@@ -371,20 +369,9 @@ function MainFrame:CreateListPane(frame)
 	box:SetPoint("BOTTOM", deleteButton, "TOP", 0, 6)
 
 	-- Empty-state message, shown over the list when there's nothing to show.
-	local emptyText = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	emptyText:SetPoint("LEFT", box, "LEFT", 14, 0)
-	emptyText:SetPoint("RIGHT", box, "RIGHT", -14, 0)
-	emptyText:SetJustifyH("CENTER")
-	ns.SetMutedText(emptyText)
-	emptyText:Hide()
-	self.emptyText = emptyText
+	self.emptyText = ns.CreateEmptyText(box)
 
-	local view = CreateScrollBoxListLinearView()
-	view:SetElementExtent(ROW_HEIGHT)
-	view:SetElementInitializer("Button", InitRow)
-	view:SetPadding(2, 2, 2, 2, 2)
-
-	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	ns.InitListView(scrollBox, scrollBar, ROW_HEIGHT, InitRow)
 	self.scrollBox = scrollBox
 end
 
@@ -445,15 +432,7 @@ function MainFrame:Create()
 		f:UnregisterEvent("PLAYER_REGEN_DISABLED")
 		f:UnregisterEvent("PLAYER_REGEN_ENABLED")
 		ns.Editor:UpdateRun() -- hide the UIParent-parented Run button with us
-		if ns.IconPicker then
-			ns.IconPicker:Close()
-		end
-		if ns.MacroBuilder then
-			ns.MacroBuilder:Close()
-		end
-		if ns.TransferWizard then
-			ns.TransferWizard:Close()
-		end
+		ns.CloseDockPanels()
 	end)
 	frame:SetScript("OnEvent", function(_, event)
 		if event == "UPDATE_MACROS" then
@@ -538,7 +517,7 @@ function MainFrame:UpdateEmptyState(shown, total, hasQuery)
 		self.emptyText:SetText(self:IsMessages() and "No saved messages yet." or "No macros in this tab yet.")
 		self.emptyText:Show()
 	elseif shown == 0 and hasQuery then
-		local q = (state.query or ""):gsub("|", "||")
+		local q = ns.EscapePipes(state.query)
 		local noun = self:IsMessages() and "messages" or "macros"
 		self.emptyText:SetText(("No %s match \"%s\"."):format(noun, q))
 		self.emptyText:Show()

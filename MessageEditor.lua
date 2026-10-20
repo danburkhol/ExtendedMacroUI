@@ -11,8 +11,6 @@ local ADDON_NAME, ns = ...
 
 local CreateFrame = CreateFrame
 local CreateDataProvider = CreateDataProvider
-local CreateScrollBoxListLinearView = CreateScrollBoxListLinearView
-local ScrollUtil = ScrollUtil
 local tinsert = tinsert
 local tremove = tremove
 local strtrim = strtrim
@@ -43,20 +41,7 @@ MessageEditor.loading = false
 
 local NameIsBlank = ns.IsBlank
 
--- Shallow-copies an outputs array keeping only persisted fields.
-local function CopyOutputs(outputs)
-	local copy = {}
-	if outputs then
-		for _, output in ipairs(outputs) do
-			local entry = { chatType = output.chatType }
-			if output.channel then
-				entry.channel = output.channel
-			end
-			copy[#copy + 1] = entry
-		end
-	end
-	return copy
-end
+local CopyOutputs = Messages.CopyOutputs
 
 -- Set of output keys, for quick membership and set-equality tests.
 local function OutputSet(outputs)
@@ -464,11 +449,7 @@ function MessageEditor:Create(parent)
 	box:SetPoint("RIGHT", area, "RIGHT", -10, 0)
 	box:SetPoint("BOTTOM", sendButton, "TOP", 0, 8)
 
-	local view = CreateScrollBoxListLinearView()
-	view:SetElementExtent(OUTPUT_ROW_HEIGHT)
-	view:SetElementInitializer("Button", InitOutputRow)
-	view:SetPadding(2, 2, 2, 2, 2)
-	ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+	ns.InitListView(scrollBox, scrollBar, OUTPUT_ROW_HEIGHT, InitOutputRow)
 	self.outputBox = scrollBox
 
 	-- "No message selected" prompt.
