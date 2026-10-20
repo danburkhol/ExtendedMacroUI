@@ -1,0 +1,14 @@
+# BigWigs packager configuration — https://github.com/BigWigsMods/packager
+package-as: ExtendedMacroUI
+
+# Libraries are vendored in Libs/ and committed, so don't fetch or strip them.
+enable-nolib-creation: no
+
+# Dev-only files that shouldn't ship in the released zip.
+ignore:
+  - CLAUDE.md
+  - KICKOFF_PROMPT.md
+  - .luacheckrc
+  - .gitignore
+  - .claude
+  - .github

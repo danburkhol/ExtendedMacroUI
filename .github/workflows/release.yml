@@ -1,0 +1,29 @@
+name: Release
+
+# Build and upload whenever a version tag is pushed, e.g. `git push origin v0.11.0`.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # allow the packager to create a GitHub Release
+
+jobs:
+  release:
+    name: Package and upload to CurseForge
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so the changelog can be generated
+
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Project ID is read from the X_CURSE_PROJECT_ID repo secret.
+          args: -p ${{ secrets.X_CURSE_PROJECT_ID }}
