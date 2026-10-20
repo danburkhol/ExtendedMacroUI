@@ -200,6 +200,20 @@ ExtendedMacroUI/
 - Keep changes small and in the milestone's scope. Ask before adding
   libraries, XML or new files outside the layout above.
 
+## Publishing (CurseForge)
+
+- Releases are automated: pushing a `v*` tag runs the BigWigs packager
+  (`.github/workflows/release.yml`) which uploads to CurseForge. Use the
+  `/release` skill to bump the version, lint, commit, tag and push.
+- **The CurseForge project description is Markdown, not BBCode or HTML.**
+  Paste Markdown into the editor (switch to its Markdown mode if it has one).
+  BBCode and raw HTML render as literal text.
+- The store copy lives in `docs/` (ignored from the packaged zip):
+  `curseforge-description.md` (Markdown with absolute
+  `raw.githubusercontent.com/.../docs/screenshots/*.png` image URLs — relative
+  paths only work in GitHub's README view) and `curseforge-summary.txt` (the
+  one-line plain-text tagline).
+
 ## Milestones
 
 1. **Skeleton.** TOC, Core, `/emu` toggles an empty movable window with
