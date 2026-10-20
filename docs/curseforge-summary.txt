@@ -1,0 +1,1 @@
+A modern replacement macro window for Classic — fuzzy search, a guided macro builder, saved chat messages, and import/export.
