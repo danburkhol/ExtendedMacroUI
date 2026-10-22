@@ -12,6 +12,7 @@ local ADDON_NAME, ns = ...
 local CreateFrame = CreateFrame
 local CreateDataProvider = CreateDataProvider
 local C_Spell = C_Spell
+local C_SpellBook = C_SpellBook
 local C_Item = C_Item
 local C_Container = C_Container
 local ChatFrameUtil = ChatFrameUtil
@@ -145,31 +146,64 @@ end
 -- Data (pure)
 --------------------------------------------------------------------------------
 
--- Every castable spell the player knows, at its highest rank, as sorted
--- { key = spellID, name, icon, spellID }. De-duplicated by name (a spell line
--- appears once). Skips passives, not-yet-learned and flyout entries.
-function MacroBuilder.KnownSpells()
-	local list, seen = {}, {}
+-- Legacy spellbook API (Classic Era / Anniversary): spell tabs and book slots.
+-- Calls add(name, spellID, icon, bookSlot) for each castable spell.
+local function LegacyKnownSpells(add)
 	for tab = 1, GetNumSpellTabs() do
 		local _, _, offset, numSpells = GetSpellTabInfo(tab)
 		if offset and numSpells then
 			for slot = offset + 1, offset + numSpells do
 				local spellType, id = GetSpellBookItemInfo(slot, BOOKTYPE_SPELL)
 				if spellType == "SPELL" and not IsPassiveSpell(slot, BOOKTYPE_SPELL) then
-					local name = GetSpellBookItemName(slot, BOOKTYPE_SPELL)
-					if name and name ~= "" and not seen[name:lower()] then
-						seen[name:lower()] = true
-						list[#list + 1] = {
-							key = id or name,
-							name = name,
-							icon = GetSpellTexture(slot, BOOKTYPE_SPELL) or QUESTION_MARK_ICON,
-							spellID = id,
-							bookSlot = slot, -- for the hover tooltip
-						}
-					end
+					add(GetSpellBookItemName(slot, BOOKTYPE_SPELL), id, GetSpellTexture(slot, BOOKTYPE_SPELL), slot)
 				end
 			end
 		end
+	end
+end
+
+-- C_SpellBook API, for clients that dropped the legacy globals above (WoW
+-- Forever / Camelot). No book slot is passed, so the hover tooltip falls back
+-- to the spell id.
+local function SpellBookKnownSpells(add)
+	local bank = Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0
+	local spellItem = Enum.SpellBookItemType and Enum.SpellBookItemType.Spell or 1
+	for line = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+		local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(line)
+		if lineInfo and lineInfo.itemIndexOffset and lineInfo.numSpellBookItems and not lineInfo.shouldHide then
+			local offset = lineInfo.itemIndexOffset
+			for slot = offset + 1, offset + lineInfo.numSpellBookItems do
+				local info = C_SpellBook.GetSpellBookItemInfo(slot, bank)
+				if info and info.itemType == spellItem and not info.isPassive and not info.isOffSpec then
+					add(info.name, info.spellID, info.iconID, nil)
+				end
+			end
+		end
+	end
+end
+
+-- Every castable spell the player knows, at its highest rank, as sorted
+-- { key = spellID, name, icon, spellID }. De-duplicated by name (a spell line
+-- appears once). Skips passives, not-yet-learned and flyout entries. Uses
+-- whichever spellbook API this client has; with neither, the list is empty.
+function MacroBuilder.KnownSpells()
+	local list, seen = {}, {}
+	local function add(name, id, icon, bookSlot)
+		if name and name ~= "" and not seen[name:lower()] then
+			seen[name:lower()] = true
+			list[#list + 1] = {
+				key = id or name,
+				name = name,
+				icon = icon or QUESTION_MARK_ICON,
+				spellID = id,
+				bookSlot = bookSlot, -- for the hover tooltip
+			}
+		end
+	end
+	if GetNumSpellTabs then
+		LegacyKnownSpells(add)
+	elseif C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines then
+		SpellBookKnownSpells(add)
 	end
 	return ns.SortByName(list)
 end

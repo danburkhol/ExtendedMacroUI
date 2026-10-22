@@ -108,6 +108,7 @@ read_globals = {
 	"IsPassiveSpell",
 	"BOOKTYPE_SPELL",
 	"C_Spell",
+	"C_SpellBook",
 	"C_Item",
 	"C_Container",
 	"BACKPACK_CONTAINER",
