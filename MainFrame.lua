@@ -401,6 +401,13 @@ function MainFrame:Create()
 	ns.SetTooltip(transferButton, "Import / Export macros and saved messages.")
 	self.transferButton = transferButton
 
+	-- These three sit on the window's title bar, parented straight onto the
+	-- frame, where the Camelot client's top-bar chrome draws over them (see
+	-- ns.LiftButtonAboveChrome). Lift them clear; a no-op on other clients.
+	for _, headerButton in ipairs({ macroButton, optionsButton, transferButton }) do
+		ns.LiftButtonAboveChrome(headerButton)
+	end
+
 	-- Movability/registration is set per mode by ns.ApplyLayoutMode(); dragging
 	-- only does anything in free-floating mode.
 	frame:SetClampedToScreen(true)

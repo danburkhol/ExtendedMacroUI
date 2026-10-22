@@ -14,13 +14,36 @@ ns.MacroData = MacroData
 MacroData.ACCOUNT = "account"
 MacroData.CHARACTER = "character"
 
--- Base index offset and slot maximum for a tab, straight from the game's
--- globals (never hardcode 120/18).
-function MacroData.GetRange(tab)
-	if tab == MacroData.CHARACTER then
-		return MAX_ACCOUNT_MACROS, MAX_CHARACTER_MACROS
+-- The WoW Forever (Camelot) client never defines MAX_ACCOUNT_MACROS /
+-- MAX_CHARACTER_MACROS -- they stay nil even after Blizzard_MacroUI loads --
+-- so every range/slot calculation below would compare against nil and throw.
+-- These are that client's real caps, read off its default macro window; the
+-- account cap doubles as the character tab's index offset (character macros
+-- start at MAX_ACCOUNT_MACROS + 1). Used only as a fallback, and only on
+-- Camelot, so any client that exposes the real globals keeps using them.
+local CAMELOT_ACCOUNT_MAX = 120
+local CAMELOT_CHARACTER_MAX = 30
+
+-- The slot maximums for this client, preferring the live globals and falling
+-- back to the Camelot constants when they're absent.
+local function Maximums()
+	local accountMax, characterMax = MAX_ACCOUNT_MACROS, MAX_CHARACTER_MACROS
+	if ns.IS_CAMELOT then
+		accountMax = accountMax or CAMELOT_ACCOUNT_MAX
+		characterMax = characterMax or CAMELOT_CHARACTER_MAX
 	end
-	return 0, MAX_ACCOUNT_MACROS
+	return accountMax, characterMax
+end
+
+-- Base index offset and slot maximum for a tab. The maximums come from the
+-- game's globals (never hardcode them) except on clients that don't define
+-- them at all; see Maximums().
+function MacroData.GetRange(tab)
+	local accountMax, characterMax = Maximums()
+	if tab == MacroData.CHARACTER then
+		return accountMax, characterMax
+	end
+	return 0, accountMax
 end
 
 -- numAccount, numCharacter

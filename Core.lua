@@ -16,6 +16,17 @@ local CHAT_PREFIX = "|cffffd100Extended Macro UI:|r "
 ns.frame = nil
 ns.db = nil
 
+-- Client flavor detection. GetBuildInfo's 4th return is the interface/toc
+-- version the running client reports. Keep anything that only exists to work
+-- around a specific client behind a flag like this, so the common
+-- retail/Classic Era path is never touched.
+--   IS_CAMELOT: the WoW Forever "Camelot" client (Interface 16001). It draws
+--   the portrait window's border chrome above header buttons parented straight
+--   onto the frame, hiding their art (see the header-button lift in
+--   MainFrame.lua).
+ns.interfaceVersion = tonumber((select(4, GetBuildInfo()))) or 0
+ns.IS_CAMELOT = ns.interfaceVersion == 16001
+
 -- User-facing chat output.
 function ns.Print(msg)
 	DEFAULT_CHAT_FRAME:AddMessage(CHAT_PREFIX .. msg)
@@ -55,6 +66,21 @@ function ns.CreateButton(parent, text, width, height, onClick)
 		button:SetScript("OnClick", onClick)
 	end
 	return button
+end
+
+-- WoW Forever (Camelot) draws a portrait window's top-bar chrome in a plane
+-- above buttons parented straight onto the frame, hiding their art while they
+-- stay clickable (the chrome isn't mouse-enabled). A frame-level bump inside
+-- the window's own strata isn't enough; lifting the button into the strata
+-- above the window (our windows are HIGH, so DIALOG clears their chrome)
+-- restores it. No-op on every other client, where these buttons already
+-- render correctly, so it's safe to call unconditionally.
+function ns.LiftButtonAboveChrome(button)
+	if not ns.IS_CAMELOT then
+		return
+	end
+	button:SetFrameStrata("DIALOG")
+	button:SetFrameLevel((button:GetParent():GetFrameLevel() or 0) + 20)
 end
 
 -- A hidden, movable-elsewhere portrait window (the main window, icon picker and

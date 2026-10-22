@@ -73,6 +73,7 @@ read_globals = {
 	"MAX_CHARACTER_MACROS",
 	"MACROFRAME_CHAR_LIMIT",
 	-- Combat / state
+	"GetBuildInfo",
 	"InCombatLockdown",
 	"UnitName",
 	"C_Timer",
