@@ -2,7 +2,7 @@
 ## Title: Extended Macro UI
 ## Notes: A replacement macro window for WoW Classic.
 ## Author: danburkhol
-## Version: 0.11.0
+## Version: 0.12.0
 ## SavedVariables: ExtendedMacroUIDB
 ## X-Embeds: LibStub, CallbackHandler-1.0, LibDataBroker-1.1, LibDBIcon-1.0
 
