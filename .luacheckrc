@@ -106,6 +106,7 @@ read_globals = {
 	"GetSpellBookItemName",
 	"GetSpellTexture",
 	"IsPassiveSpell",
+	"AuraUtil",
 	"BOOKTYPE_SPELL",
 	"C_Spell",
 	"C_SpellBook",

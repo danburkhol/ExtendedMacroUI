@@ -15,6 +15,7 @@ local C_Spell = C_Spell
 local C_SpellBook = C_SpellBook
 local C_Item = C_Item
 local C_Container = C_Container
+local AuraUtil = AuraUtil
 local ChatFrameUtil = ChatFrameUtil
 local hooksecurefunc = hooksecurefunc
 local GetNumSpellTabs = GetNumSpellTabs
@@ -65,16 +66,18 @@ local ACTIONS = {
 	{ key = "cast",    text = "Cast Spell" },
 	{ key = "use",     text = "Use Item" },
 	{ key = "equip",   text = "Equip Item" },
+	{ key = "cancelaura", text = "Cancel Buff" },
 	{ key = "message", text = "Saved Message" },
 	{ key = "itemrack", text = "ItemRack: Equip Set", requiresAddOn = "ItemRack",
 		disabledDesc = "Requires the ItemRack addon to be installed and enabled." },
 }
 
 -- Which conditionals each action supports. /emu send and /itemrack equip take
--- a plain name (their handlers don't parse [conditionals]); /equip honors
--- modifiers but a target is meaningless for it.
+-- a plain name (their handlers don't parse [conditionals]); /equip and
+-- /cancelaura honor modifiers but a target is meaningless for them
+-- (/cancelaura always acts on your own buffs).
 local ACTION_TARGETS = { cast = true, use = true }
-local ACTION_MODIFIERS = { cast = true, use = true, equip = true }
+local ACTION_MODIFIERS = { cast = true, use = true, equip = true, cancelaura = true }
 
 -- Equip locations that fit two slots: these get a slot choice and an
 -- /equipslot command. Every other wearable location has exactly one slot,
@@ -278,6 +281,64 @@ function MacroBuilder.EquippableItems()
 	end)
 end
 
+-- Buffs players commonly want to click off, listed for Cancel Buff even when
+-- they aren't on the player right now (so the macro can be built ahead of
+-- time -- most come from other players). /cancelaura works by name, so the
+-- name is the source of truth; the spellID only resolves an icon, so a wrong
+-- or unknown id just falls back to the question mark.
+local COMMON_AURAS = {
+	{ name = "Blessing of Salvation", spellID = 1038 },
+	{ name = "Greater Blessing of Salvation", spellID = 25895 },
+	{ name = "Blessing of Protection", spellID = 1022 },
+	{ name = "Blessing of Freedom", spellID = 1044 },
+}
+
+-- The icon for a spellID, or nil if the client can't resolve one.
+local function SpellIcon(spellID)
+	if spellID and C_Spell and C_Spell.GetSpellTexture then
+		return C_Spell.GetSpellTexture(spellID)
+	end
+	return nil
+end
+
+-- Buffs the player can cancel: everything helpful on them right now, plus the
+-- common click-off buffs that aren't currently active, as sorted
+-- { key, name, icon, spellID, note }. De-duplicated by lowercased name (an
+-- active buff wins over its common-list twin, keeping its real icon and the
+-- "(active)" note). Uses AuraUtil.ForEachAura -- the same enumeration the
+-- Blizzard buff frame uses -- with the packed aura table (name/icon/spellId).
+function MacroBuilder.CancelableBuffs()
+	local list, seen = {}, {}
+	local function add(name, icon, spellID, note)
+		if not name or name == "" then
+			return
+		end
+		local lname = name:lower()
+		if seen[lname] then
+			return
+		end
+		seen[lname] = true
+		list[#list + 1] = {
+			key = lname,
+			name = name,
+			icon = icon or QUESTION_MARK_ICON,
+			spellID = spellID, -- for the hover tooltip and icon
+			note = note,
+		}
+	end
+	if AuraUtil and AuraUtil.ForEachAura then
+		AuraUtil.ForEachAura("player", "HELPFUL", nil, function(aura)
+			if aura then
+				add(aura.name, aura.icon, aura.spellId, "(active)")
+			end
+		end, true)
+	end
+	for _, b in ipairs(COMMON_AURAS) do
+		add(b.name, SpellIcon(b.spellID), b.spellID)
+	end
+	return ns.SortByName(list)
+end
+
 -- True if ItemRack is loaded (its action is grayed out in the menu otherwise).
 function MacroBuilder.HasItemRack()
 	return (C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("ItemRack")) and true or false
@@ -385,7 +446,9 @@ function MacroBuilder.Compose(o)
 	local modifier = ACTION_MODIFIERS[action] and o.modifier or "none"
 	local clause = Clause(target, modifier)
 
-	if action == "equip" then
+	if action == "cancelaura" then
+		return "/cancelaura " .. clause .. name
+	elseif action == "equip" then
 		if o.equipSlot then
 			return "/equipslot " .. clause .. o.equipSlot .. " " .. name
 		end
@@ -465,7 +528,9 @@ function MacroBuilder.Describe(o)
 	local modifier = ACTION_MODIFIERS[action] and o.modifier or "none"
 
 	local parts
-	if action == "equip" then
+	if action == "cancelaura" then
+		parts = { "Cancels the buff " .. name }
+	elseif action == "equip" then
 		parts = { "Equips " .. name }
 		local slotPhrase = o.equipSlot and SlotPhrase(o.equipLoc, o.equipSlot)
 		if slotPhrase then
@@ -582,6 +647,7 @@ local LIST_SOURCES = {
 	cast = { fetch = function() return MacroBuilder.KnownSpells() end, noun = "spells" },
 	use = { fetch = function() return MacroBuilder.UsableItems() end, noun = "usable items" },
 	equip = { fetch = function() return MacroBuilder.EquippableItems() end, noun = "equippable items" },
+	cancelaura = { fetch = function() return MacroBuilder.CancelableBuffs() end, noun = "buffs" },
 	message = { fetch = function() return ns.Messages.ListItems() end, noun = "saved messages" },
 	itemrack = { fetch = function() return MacroBuilder.ItemRackSets() end, noun = "ItemRack sets" },
 }
@@ -698,6 +764,7 @@ local HINTS = {
 	cast = "Pick a spell to build a /cast command.",
 	use = "Pick an item or type its name to build a /use command.",
 	equip = "Pick an item or type its name to build an /equip command.",
+	cancelaura = "Pick an active or common buff, or type a buff name, to build a /cancelaura command.",
 	message = "Pick a saved message to insert an /emu send command.",
 	itemrack = "Pick an ItemRack set to build an /itemrack equip command.",
 }
@@ -721,6 +788,7 @@ local NAME_LABELS = {
 	cast = "Spell name (click the list, type, or Shift-click from your spellbook)",
 	use = "Item name (click the list, type, or Shift-click an item)",
 	equip = "Item name (click the list, type, or Shift-click an item)",
+	cancelaura = "Buff name (click one from the list below, or type it exactly)",
 	itemrack = "ItemRack set name (type it exactly)",
 }
 
@@ -1044,20 +1112,27 @@ function MacroBuilder:Create()
 	ns.InitListView(scrollBox, scrollBar, ROW_HEIGHT, InitListButton)
 	self.scrollBox = scrollBox
 
-	-- Keep the list fresh while open as the player learns spells or their bags
-	-- or worn gear change; rebuild only for the list currently shown.
+	-- Keep the list fresh while open as the player learns spells, their bags or
+	-- worn gear change, or their buffs come and go; rebuild only for the list
+	-- currently shown.
 	frame:SetScript("OnShow", function()
 		frame:RegisterEvent("SPELLS_CHANGED")
 		frame:RegisterEvent("BAG_UPDATE_DELAYED")
 		frame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
+		frame:RegisterEvent("UNIT_AURA")
 	end)
 	frame:SetScript("OnHide", function()
 		frame:UnregisterEvent("SPELLS_CHANGED")
 		frame:UnregisterEvent("BAG_UPDATE_DELAYED")
 		frame:UnregisterEvent("PLAYER_EQUIPMENT_CHANGED")
+		frame:UnregisterEvent("UNIT_AURA")
 		HideEntryTooltip()
 	end)
-	frame:SetScript("OnEvent", function()
+	frame:SetScript("OnEvent", function(_, event, unit)
+		-- UNIT_AURA fires for every unit; only the player's buffs feed the list.
+		if event == "UNIT_AURA" and unit ~= "player" then
+			return
+		end
 		MacroBuilder:RefreshList()
 	end)
 
