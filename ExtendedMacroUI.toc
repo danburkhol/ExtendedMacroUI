@@ -17,6 +17,7 @@ Messages.lua
 Editor.lua
 MessageEditor.lua
 MainFrame.lua
+IconNames.lua
 IconPicker.lua
 MacroBuilder.lua
 Transfer.lua
