@@ -52,6 +52,11 @@ local LIST_CHROME = 12
 local MIN_LIST_ROWS, MAX_LIST_ROWS = 4, 8
 -- Height of the Target row, collapsed for actions that take no target.
 local TARGET_ROW_HEIGHT = 48
+-- The preview is one line for composed commands; a library pick shows its whole
+-- (multi-line) body, so the preview and window grow to fit it, capped.
+local PREVIEW_SINGLE_HEIGHT = 24
+local PREVIEW_LINE_HEIGHT = 13
+local MAX_PREVIEW_LINES = 12
 local QUESTION_MARK_ICON = ns.QUESTION_MARK_ICON
 
 local MacroBuilder = ns.RegisterDockPanel({})
@@ -61,8 +66,10 @@ ns.MacroBuilder = MacroBuilder
 MacroBuilder.action = "cast"
 MacroBuilder.target = "none"
 MacroBuilder.modifier = "none"
+MacroBuilder.previewHeight = PREVIEW_SINGLE_HEIGHT
 
 local ACTIONS = {
+	{ key = "library", text = "Macro Library" },
 	{ key = "cast",    text = "Cast Spell" },
 	{ key = "use",     text = "Use Item" },
 	{ key = "equip",   text = "Equip Item" },
@@ -143,6 +150,57 @@ local MODIFIERS = {
 local MOD_COND = {}
 for _, m in ipairs(MODIFIERS) do
 	MOD_COND[m.key] = m.cond
+end
+
+-- Prebuilt macros offered by the "Macro Library" action. Unlike the other
+-- actions (which compose one command from live game data), each library entry
+-- is a fixed, ready-to-use macro body that Insert/New Macro drop in whole.
+-- Every button name below is verified against the classic_era UI source.
+-- Keep bodies within the 255-char macro limit.
+--   key: stable id. name: list label + default macro name (<= 16 shows cleanly).
+--   note: muted suffix in the list. icon: list-row texture (New Macro still
+--   gets the "?" icon). body: the macro text. desc: the explanation line.
+local CLICK_THROUGH_LINES = {
+	"/click StaticPopup1Button1",
+	"/click QuestFrameAcceptButton",
+	"/click QuestFrameCompleteQuestButton",
+	"/click QuestFrameCompleteButton",
+	"/click QuestTitleButton1",
+	"/click TradeFrameTradeButton",
+	"/click BattlefieldFrameJoinButton",
+	"/click PVPReadyDialogEnterBattleButton",
+}
+
+local LIBRARY = {
+	{
+		key = "clickthrough",
+		name = "Click-Through",
+		note = "(quests, trade, BG)",
+		icon = "Interface\\ICONS\\INV_Misc_Note_01",
+		body = concat(CLICK_THROUGH_LINES, "\n"),
+		desc = "One key for quest accept/turn-in, trade confirm, Battleground "
+			.. "join and enter, and the first confirmation popup.",
+	},
+}
+
+local LIBRARY_BY_KEY = {}
+for _, entry in ipairs(LIBRARY) do
+	LIBRARY_BY_KEY[entry.key] = entry
+end
+
+-- The library entries as a fresh sorted { key, name, icon, note } list for the
+-- selector (a copy, so SortByName never reorders LIBRARY itself).
+function MacroBuilder.LibraryEntries()
+	local list = {}
+	for _, entry in ipairs(LIBRARY) do
+		list[#list + 1] = {
+			key = entry.key,
+			name = entry.name,
+			icon = entry.icon or QUESTION_MARK_ICON,
+			note = entry.note,
+		}
+	end
+	return ns.SortByName(list)
 end
 
 --------------------------------------------------------------------------------
@@ -434,6 +492,11 @@ function MacroBuilder.Compose(o)
 	end
 	local action = o.action
 
+	-- A library pick is a fixed, prebuilt macro body; emit it verbatim.
+	if action == "library" then
+		return o.libraryBody or ""
+	end
+
 	-- Saved messages and ItemRack sets go through slash commands that take
 	-- only a name (no [@target,mod] conditionals), so emit them plainly.
 	if action == "message" then
@@ -518,7 +581,9 @@ function MacroBuilder.Describe(o)
 	end
 	local action = o.action
 
-	if action == "message" then
+	if action == "library" then
+		return o.libraryDesc or ""
+	elseif action == "message" then
 		return ("Sends the saved message \"%s\"."):format(name)
 	elseif action == "itemrack" then
 		return ("Equips the ItemRack set \"%s\" (the name must match exactly)."):format(name)
@@ -644,6 +709,7 @@ end
 
 -- What each action lists, and the noun used in its empty-state text.
 local LIST_SOURCES = {
+	library = { fetch = function() return MacroBuilder.LibraryEntries() end, noun = "library macros" },
 	cast = { fetch = function() return MacroBuilder.KnownSpells() end, noun = "spells" },
 	use = { fetch = function() return MacroBuilder.UsableItems() end, noun = "usable items" },
 	equip = { fetch = function() return MacroBuilder.EquippableItems() end, noun = "equippable items" },
@@ -681,6 +747,7 @@ end
 -- box): saved messages, and ItemRack sets when they can be listed.
 function MacroBuilder:IsListOnly()
 	return self.action == "message"
+		or self.action == "library"
 		or (self.action == "itemrack" and MacroBuilder.CanListItemRackSets())
 end
 
@@ -695,7 +762,9 @@ function MacroBuilder:UpdateHeight()
 	local rows = math.min(math.max(count, MIN_LIST_ROWS), MAX_LIST_ROWS)
 	local below
 	if self:IsListOnly() then
-		below = BELOW_LIST_MESSAGE
+		-- A tall (library) preview pushes everything above it up, so grow the
+		-- window by however much the preview exceeds its single-line height.
+		below = BELOW_LIST_MESSAGE + (self.previewHeight - PREVIEW_SINGLE_HEIGHT)
 	elseif not ACTION_TARGETS[self.action] then
 		below = BELOW_LIST_FULL - TARGET_ROW_HEIGHT
 	else
@@ -744,6 +813,7 @@ end
 
 -- The current choices as the options table Compose/Describe take.
 function MacroBuilder:Options()
+	local libEntry = (self.action == "library") and LIBRARY_BY_KEY[self.selectedKey] or nil
 	return {
 		action = self.action,
 		name = self:EffectiveName(),
@@ -753,6 +823,8 @@ function MacroBuilder:Options()
 		rankPrefix = (self.action == "cast") and self.rankPrefix or nil,
 		equipLoc = self.equipLoc,
 		equipSlot = (self.action == "equip" or self.action == "use") and self.equipSlot or nil,
+		libraryBody = libEntry and libEntry.body or nil,
+		libraryDesc = libEntry and libEntry.desc or nil,
 	}
 end
 
@@ -761,6 +833,7 @@ function MacroBuilder:CurrentLine()
 end
 
 local HINTS = {
+	library = "Pick a prebuilt macro from the library to preview and insert it.",
 	cast = "Pick a spell to build a /cast command.",
 	use = "Pick an item or type its name to build a /use command.",
 	equip = "Pick an item or type its name to build an /equip command.",
@@ -769,9 +842,28 @@ local HINTS = {
 	itemrack = "Pick an ItemRack set to build an /itemrack equip command.",
 }
 
+-- Grows the preview (and, through UpdateHeight, the window) to fit a multi-line
+-- library body, and shrinks it back to one line for composed commands.
+function MacroBuilder:ResizePreview(line)
+	local height = PREVIEW_SINGLE_HEIGHT
+	if self.action == "library" and line ~= "" then
+		local lines = 1
+		for _ in line:gmatch("\n") do
+			lines = lines + 1
+		end
+		height = math.min(lines, MAX_PREVIEW_LINES) * PREVIEW_LINE_HEIGHT + 6
+	end
+	if height ~= self.previewHeight then
+		self.previewHeight = height
+		self.preview:SetHeight(height)
+		self:UpdateHeight()
+	end
+end
+
 function MacroBuilder:UpdatePreview()
 	local line = self:CurrentLine()
 	local hasLine = line ~= ""
+	self:ResizePreview(line)
 	if hasLine then
 		self.preview:SetText(line)
 		self.preview:SetTextColor(1, 1, 1)
@@ -998,7 +1090,10 @@ function MacroBuilder:Create()
 	preview:SetPoint("BOTTOMLEFT", explain, "TOPLEFT", 0, 6)
 	preview:SetPoint("RIGHT", inset, "RIGHT", -12, 0)
 	preview:SetJustifyH("LEFT")
-	preview:SetHeight(24)
+	-- Top-aligned so a multi-line library body reads under the "Preview" label;
+	-- its height grows to fit the body (ResizePreview).
+	preview:SetJustifyV("TOP")
+	preview:SetHeight(PREVIEW_SINGLE_HEIGHT)
 	self.preview = preview
 
 	local previewLabel = inset:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
