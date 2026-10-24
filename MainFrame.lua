@@ -608,6 +608,22 @@ function MainFrame:UpdateButtons()
 		ns.Editor:UpdateButtons(inCombat)
 	end
 	self:UpdateDirtyIndicator()
+	-- The builder's "New Macro" button tracks the same free-slot/combat state,
+	-- so refresh it whenever this does (UPDATE_MACROS, combat start/end).
+	if ns.MacroBuilder and ns.MacroBuilder:IsShown() then
+		ns.MacroBuilder:UpdatePreview()
+	end
+end
+
+-- Whether a new macro can be created in the current macro tab right now: out of
+-- combat and with a free slot. Used by the Macro Builder's "New Macro" option.
+-- False on the Messages tab (messages aren't macros).
+function MainFrame:CanCreateMacroHere()
+	if self:IsMessages() or InCombatLockdown() then
+		return false
+	end
+	local _, max = MacroData.GetRange(state.tab)
+	return MacroData.GetUsed(state.tab) < max
 end
 
 -- Whether a new entry can currently be made in this tab (so the per-row
@@ -801,6 +817,46 @@ function MainFrame:NewMacro()
 	self:DoNewMacro()
 end
 
+-- Creates a new macro in the current tab pre-filled with `body` (the command the
+-- Macro Builder composed) and named `name`, then selects it and focuses its name
+-- box so the player can rename it. Unlike DoNewMacro it doesn't open the icon
+-- picker -- the builder stays docked so more commands can be built.
+function MainFrame:DoNewMacroFromBuilder(name, body)
+	if InCombatLockdown() then
+		return
+	end
+	if ns.IsBlank(name) then
+		name = "New Macro"
+	end
+	local perChar = (state.tab == MacroData.CHARACTER)
+	local newIndex = CreateMacro(name, QUESTION_MARK_ICON, body or "", perChar)
+	if not newIndex then
+		return
+	end
+	state.selected[state.tab] = newIndex
+	state.query = ""
+	self.search:SetText("")
+	ns.Editor:LoadMacro(newIndex)
+	self:Refresh()
+	self:UpdateButtons()
+	ns.Editor:FocusName()
+end
+
+-- Entry point for the Macro Builder's "New Macro" option. Guards a full tab,
+-- combat and unsaved edits (on the macro currently open) the same way NewMacro
+-- does before handing off to DoNewMacroFromBuilder.
+function MainFrame:NewMacroFromBuilder(name, body)
+	if not self:CanCreateMacroHere() then
+		return
+	end
+	if ns.Editor:IsDirty() then
+		self.pending = { kind = "newfrombuilder", name = name, body = body }
+		StaticPopup_Show("EXTENDEDMACROUI_UNSAVED")
+		return
+	end
+	self:DoNewMacroFromBuilder(name, body)
+end
+
 function MainFrame:DoDelete()
 	if InCombatLockdown() then
 		return
@@ -980,6 +1036,8 @@ function MainFrame:ResolvePending(action)
 		else
 			self:DoNewMacro()
 		end
+	elseif pending.kind == "newfrombuilder" then
+		self:DoNewMacroFromBuilder(pending.name, pending.body)
 	elseif pending.kind == "selecttab" then
 		self:DoSelectTab(pending.tab)
 	elseif pending.kind == "duplicate" then

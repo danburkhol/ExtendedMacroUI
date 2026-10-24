@@ -771,7 +771,8 @@ local HINTS = {
 
 function MacroBuilder:UpdatePreview()
 	local line = self:CurrentLine()
-	if line ~= "" then
+	local hasLine = line ~= ""
+	if hasLine then
 		self.preview:SetText(line)
 		self.preview:SetTextColor(1, 1, 1)
 		self.explain:SetText(MacroBuilder.Describe(self:Options()))
@@ -781,6 +782,11 @@ function MacroBuilder:UpdatePreview()
 		ns.SetMutedText(self.preview)
 		self.explain:SetText("")
 		self.insertButton:SetEnabled(false)
+	end
+	-- New Macro also needs a free slot in the current tab (and no combat).
+	if self.newMacroButton then
+		self.newMacroButton:SetEnabled(hasLine and ns.MainFrame ~= nil
+			and ns.MainFrame:CanCreateMacroHere())
 	end
 end
 
@@ -955,6 +961,29 @@ function MacroBuilder:Create()
 	insert:SetPoint("BOTTOMRIGHT", cancel, "BOTTOMLEFT", -6, 0)
 	ns.SetTooltip(insert, "Add this command as a new line in the macro you're editing.")
 	self.insertButton = insert
+
+	-- Alternative to Insert: make a brand-new macro from this command instead of
+	-- adding it to the one being edited. Disabled (with a reason in the tooltip)
+	-- when the current tab is full or we're in combat.
+	local newMacro = ns.CreateButton(frame, "New Macro", 96, 22, function() MacroBuilder:CreateNew() end)
+	newMacro:SetPoint("BOTTOMRIGHT", insert, "BOTTOMLEFT", -6, 0)
+	newMacro:SetMotionScriptsWhileDisabled(true)
+	newMacro:SetScript("OnEnter", function(button)
+		GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+		GameTooltip:AddLine("Create a new macro in this tab from this command.", 1, 1, 1, true)
+		if not button:IsEnabled() then
+			if InCombatLockdown() then
+				GameTooltip:AddLine("Can't create macros while in combat.", 1, 0.3, 0.3, true)
+			elseif ns.MainFrame and not ns.MainFrame:CanCreateMacroHere() then
+				GameTooltip:AddLine("This tab is full -- delete a macro to make room.", 1, 0.3, 0.3, true)
+			else
+				GameTooltip:AddLine("Pick or name something to build a command first.", 1, 0.3, 0.3, true)
+			end
+		end
+		GameTooltip:Show()
+	end)
+	newMacro:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	self.newMacroButton = newMacro
 
 	-- Preview block, built bottom-up: the plain-language explanation sits at the
 	-- very bottom, the composed command above it, and the "Preview" label on top.
@@ -1192,4 +1221,22 @@ function MacroBuilder:Insert()
 	if ns.Editor then
 		ns.Editor:InsertBodyLine(line)
 	end
+end
+
+-- Creates a brand-new macro in the current tab from the composed command (its
+-- body), instead of inserting into the macro being edited. The acted-on name
+-- (spell/item/buff/message) is a reasonable default macro name, trimmed to the
+-- 16-char limit; MainFrame selects the new macro and focuses its name box so the
+-- player can rename it. No-op without a command, or when the tab has no free
+-- slot (the button is disabled then too).
+function MacroBuilder:CreateNew()
+	local line = self:CurrentLine()
+	if line == "" or not ns.MainFrame then
+		return
+	end
+	local name = ns.NameWithSuffix(strtrim(self:EffectiveName()), "", 16)
+	if name == "" then
+		name = "New Macro"
+	end
+	ns.MainFrame:NewMacroFromBuilder(name, line)
 end
