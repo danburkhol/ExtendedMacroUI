@@ -181,6 +181,19 @@ local LIBRARY = {
 		desc = "One key for quest accept/turn-in, trade confirm, Battleground "
 			.. "join and enter, and the first confirmation popup.",
 	},
+	{
+		key = "evocationswap",
+		name = "Evocation Weapon Swap",
+		note = "(mage)",
+		icon = "Interface\\ICONS\\Spell_Nature_Purge",
+		body = "#showtooltip Evocation\n"
+			.. "/equip [button:2] Combat Weapon\n"
+			.. "/equip [button:1] Spirit Weapon\n"
+			.. "/cast [button:1] Evocation",
+		desc = "Left-click equips your spirit/regen weapon and channels "
+			.. "Evocation; right-click (after the channel) swaps your combat "
+			.. "weapon back. Replace the two weapon names with your own items.",
+	},
 }
 
 local LIBRARY_BY_KEY = {}
