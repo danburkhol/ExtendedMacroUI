@@ -269,6 +269,18 @@ local LIBRARY = {
 			.. "Cancel Scan\" button. Open TSM's Auctioning tab and select the group(s) "
 			.. "first, then press this. It can break if TSM renames or moves the button.",
 	},
+	{
+		key = "tsmrescan",
+		name = "TSM Rescan",
+		note = "(fragile)",
+		icon = "Interface\\ICONS\\Ability_Hunter_Readiness",
+		body = "/emu tsmscan rescan",
+		desc = "|cffff4040Fragile macro.|r Re-runs your last scan by finding and "
+			.. "clicking TSM's \"Rescan\" button -- /emu tsmscan rescan. That button only "
+			.. "appears after a scan finishes, so run a Post or Cancel scan first, then "
+			.. "press this to scan the same groups again. Same on-screen-button trick as "
+			.. "the other scan macros, so the same caveats apply.",
+	},
 }
 
 local LIBRARY_BY_KEY = {}

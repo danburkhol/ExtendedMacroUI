@@ -460,6 +460,25 @@ local TSM_SCAN_LABELS = {
 		"取消扫描",                          -- zhCN
 		"執行撤銷掃描",                      -- zhTW
 	}),
+	-- The "Rescan" button on the scan results screen re-runs the last scan. TSM
+	-- only shows it once a scan has finished, so the trigger finds it then.
+	rescan = ToSet({
+		"Rescan",                           -- enUS / esES / esMX / frFR / deDE
+		"Riesegui la Scansione",            -- itIT
+		"다시 스캔하기",                     -- koKR
+		"Buscar novamente",                 -- ptBR
+		"Повторное сканирование",           -- ruRU
+		"重新扫描",                          -- zhCN
+		"重新掃描",                          -- zhTW
+	}),
+}
+
+-- Display name and "it didn't work" hint per scan type.
+local TSM_SCAN_PRETTY = { post = "Run Post Scan", cancel = "Run Cancel Scan", rescan = "Rescan" }
+local TSM_SCAN_HINT = {
+	post = "Open TSM's Auctioning tab and select a group first.",
+	cancel = "Open TSM's Auctioning tab and select a group first.",
+	rescan = "Run a scan first -- the Rescan button only appears once a scan has finished.",
 }
 
 -- True if the named addon is loaded, across the C_AddOns move.
@@ -497,11 +516,12 @@ local function ClickButtonByLabel(labels)
 	return false
 end
 
--- Starts a TSM Auctioning scan by clicking its on-screen scan button.
--- scanType is "post" (default) or "cancel". Backs the "/emu tsmscan" macros.
+-- Clicks an on-screen TSM Auctioning scan button. scanType is "post" (default),
+-- "cancel" or "rescan". Backs the "/emu tsmscan" macros.
 function ns.RunTSMScan(scanType)
-	scanType = (scanType == "cancel") and "cancel" or "post"
-	local pretty = (scanType == "cancel") and "Run Cancel Scan" or "Run Post Scan"
+	if not TSM_SCAN_LABELS[scanType] then
+		scanType = "post"
+	end
 	if not AddOnLoaded("TradeSkillMaster") then
 		ns.Print("TradeSkillMaster isn't loaded, so there's no scan to run.")
 		return
@@ -513,11 +533,11 @@ function ns.RunTSMScan(scanType)
 	if ClickButtonByLabel(TSM_SCAN_LABELS[scanType]) then
 		return
 	end
-	-- Nothing clicked: the Auctioning group-selection screen isn't open, no
-	-- group is selected (the button is disabled), or TSM changed the button.
-	ns.Print("Couldn't find TSM's \"" .. pretty .. "\" button. Open TSM's Auctioning"
-		.. " tab and select a group first. (This macro is fragile -- see its note in"
-		.. " the Macro Builder.)")
+	-- Nothing clicked: the button isn't on screen (wrong TSM screen, or no group
+	-- selected so it's disabled), or TSM changed the button.
+	ns.Print("Couldn't find TSM's \"" .. TSM_SCAN_PRETTY[scanType] .. "\" button. "
+		.. TSM_SCAN_HINT[scanType] .. " (This macro is fragile -- see its note in the"
+		.. " Macro Builder.)")
 end
 
 --------------------------------------------------------------------------------
