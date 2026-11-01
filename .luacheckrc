@@ -78,6 +78,8 @@ read_globals = {
 	"UnitName",
 	"C_Timer",
 	"GetTime",
+	-- Frame enumeration (TSM scan-button trigger; see Core.lua)
+	"EnumerateFrames",
 	-- Chat / saved messages
 	"C_ChatInfo",
 	"GetChannelList",

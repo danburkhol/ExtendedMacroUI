@@ -194,6 +194,81 @@ local LIBRARY = {
 			.. "Evocation; right-click (after the channel) swaps your combat "
 			.. "weapon back. Replace the two weapon names with your own items.",
 	},
+	-- TradeSkillMaster helpers. TSM gives these buttons stable global names, so a
+	-- plain /click reaches them; only the button for the screen you're on is
+	-- active, so bundling the auction buttons into one key is safe. The two scan
+	-- entries are the exception: TSM leaves those buttons unnamed, so they route
+	-- through /emu tsmscan (ns.RunTSMScan in Core.lua) and are flagged fragile.
+	{
+		key = "tsmauction",
+		name = "TSM Auction Ops",
+		note = "(AH: one key)",
+		icon = "Interface\\ICONS\\INV_Misc_Coin_01",
+		body = "/click TSMCancelAuctionBtn\n"
+			.. "/click TSMAuctioningBtn\n"
+			.. "/click TSMShoppingBuyoutBtn\n"
+			.. "/click TSMSniperBtn\n"
+			.. "/click TSMBidBuyConfirmBtn",
+		desc = "One key for every TradeSkillMaster auction action -- only the button "
+			.. "for the screen you're on fires. It cancels the selected auction (My "
+			.. "Auctions), posts or cancels the current item (Auctioning), buys out the "
+			.. "Shopping or Sniper result, and confirms TSM's bid/buyout dialog. Bind it "
+			.. "to a key or your scroll wheel and press it to work down a finished scan.",
+	},
+	{
+		key = "tsmcrafting",
+		name = "TSM Craft Next",
+		note = "(crafting)",
+		icon = "Interface\\ICONS\\Trade_BlackSmithing",
+		body = "/click TSMCraftingBtn",
+		desc = "Crafts the next item in TradeSkillMaster's crafting queue -- the "
+			.. "Crafting window's \"Craft Next\" button. Press it repeatedly (or bind it "
+			.. "to your scroll wheel) to work through the whole queue.",
+	},
+	{
+		key = "tsmdestroying",
+		name = "TSM Destroy Next",
+		note = "(disenchant/mill)",
+		icon = "Interface\\ICONS\\INV_Misc_Dust_02",
+		body = "/click TSMDestroyBtn",
+		desc = "Destroys the next item in TradeSkillMaster's Destroying window "
+			.. "(disenchant, mill or prospect) -- the \"Destroy Next\" button. Press it "
+			.. "once per item as TSM fills the window from your bags.",
+	},
+	{
+		key = "tsmvendoring",
+		name = "TSM Sell All",
+		note = "(vendor)",
+		icon = "Interface\\ICONS\\INV_Misc_Coin_02",
+		body = "/click TSMVendoringSellAllButton",
+		desc = "Sells every item flagged for vendoring to the open merchant -- "
+			.. "TradeSkillMaster Vendoring's \"Sell All\" button. Only does anything with "
+			.. "a vendor window open.",
+	},
+	{
+		key = "tsmpostscan",
+		name = "TSM Post Scan",
+		note = "(fragile)",
+		icon = "Interface\\ICONS\\INV_Misc_Spyglass_02",
+		body = "/emu tsmscan post",
+		desc = "|cffff4040Fragile macro.|r TSM's \"Run Post Scan\" button has no name, "
+			.. "so this can't /click it. Instead it runs /emu tsmscan post, which finds "
+			.. "that button on screen and clicks it for you. Open TSM's Auctioning tab "
+			.. "and select the group(s) to post first, then press this. It can break if "
+			.. "TSM renames or moves the button, or on a language we don't have the label "
+			.. "for -- unlike the other TSM macros above, which use stable button names.",
+	},
+	{
+		key = "tsmcancelscan",
+		name = "TSM Cancel Scan",
+		note = "(fragile)",
+		icon = "Interface\\ICONS\\INV_Misc_Spyglass_03",
+		body = "/emu tsmscan cancel",
+		desc = "|cffff4040Fragile macro.|r The same on-screen-button trick as TSM Post "
+			.. "Scan, for cancels: /emu tsmscan cancel finds and clicks TSM's \"Run "
+			.. "Cancel Scan\" button. Open TSM's Auctioning tab and select the group(s) "
+			.. "first, then press this. It can break if TSM renames or moves the button.",
+	},
 }
 
 local LIBRARY_BY_KEY = {}

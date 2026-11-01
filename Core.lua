@@ -8,6 +8,7 @@ local InCombatLockdown = InCombatLockdown
 local GameTooltip = GameTooltip
 local CreateScrollBoxListLinearView = CreateScrollBoxListLinearView
 local ScrollUtil = ScrollUtil
+local EnumerateFrames = EnumerateFrames
 local sort = table.sort
 
 local CHAT_PREFIX = "|cffffd100Extended Macro UI:|r "
@@ -406,6 +407,120 @@ end
 ns.OpenNativeMacro = OpenNativeMacro
 
 --------------------------------------------------------------------------------
+-- TradeSkillMaster scan trigger (fragile; backs the TSM scan macros)
+--------------------------------------------------------------------------------
+
+-- Most TSM actions are macro-able because TSM names those buttons
+-- (TSMAuctioningBtn, etc.), so a macro can /click them. Its "Run Post Scan" /
+-- "Run Cancel Scan" buttons are NOT named and TSM exposes no public API, so a
+-- macro can't reach them directly. The only handle is the on-screen button:
+-- we walk the frame tree for the visible, enabled Button whose label matches
+-- TSM's localized scan text and fire its click. Starting a scan isn't a
+-- protected action, so a scripted :Click() is allowed (unlike TSM's post/buy
+-- buttons, which require a hardware click and so get real named buttons).
+--
+-- This is deliberately best-effort and brittle: it breaks if TSM renames or
+-- relocates the button, and it depends on the label strings below tracking
+-- TSM's own locale. The TSM scan entries in the Macro Builder say as much.
+
+-- Build a lookup set from a list of strings.
+local function ToSet(list)
+	local set = {}
+	for _, s in ipairs(list) do
+		set[s] = true
+	end
+	return set
+end
+
+-- TSM's localized button labels, from TSM's own Locale/*.lua. We match against
+-- every locale's string (not just the running client's) so the trigger still
+-- works if GetLocale() and TSM's loaded locale ever disagree; the strings are
+-- distinctive enough that a false match on some other addon's button is
+-- vanishingly unlikely.
+local TSM_SCAN_LABELS = {
+	post = ToSet({
+		"Run Post Scan",                    -- enUS / esMX / esES
+		"Einstellscan",                     -- deDE
+		"Exécuter l'analyse des enchères",  -- frFR
+		"Esegui Scansione Pubblicazione",   -- itIT
+		"올리기 스캔 시작하기",              -- koKR
+		"Busca p/ Postagem",                -- ptBR
+		"Сканирование выставления",         -- ruRU
+		"发布扫描",                          -- zhCN
+		"執行發佈掃描",                      -- zhTW
+	}),
+	cancel = ToSet({
+		"Run Cancel Scan",                  -- enUS / esMX / esES
+		"Abbruchscan",                      -- deDE
+		"Exécuter l'analyse d'annulation",  -- frFR
+		"Esegui Scansione Annullamento",    -- itIT
+		"취소 스캔 시작하기",                -- koKR
+		"Busca p/ Cancelamento",            -- ptBR
+		"Сканирование отмены",              -- ruRU
+		"取消扫描",                          -- zhCN
+		"執行撤銷掃描",                      -- zhTW
+	}),
+}
+
+-- True if the named addon is loaded, across the C_AddOns move.
+local function AddOnLoaded(name)
+	if C_AddOns and C_AddOns.IsAddOnLoaded then
+		return C_AddOns.IsAddOnLoaded(name)
+	end
+	return _G.IsAddOnLoaded and _G.IsAddOnLoaded(name) or false
+end
+
+-- Finds the first visible, enabled Button whose label text is in `labels` and
+-- clicks it. A native :Click() fires the frame's real OnClick, which is what
+-- TSM registers its scan-start handler on. Returns true if a button was clicked.
+local function ClickButtonByLabel(labels)
+	-- EnumerateFrames() returns the first frame; EnumerateFrames(f) the next.
+	-- A guard bounds the walk in case a client ever returns a cycle.
+	local frame = EnumerateFrames()
+	local guard = 0
+	while frame and guard < 50000 do
+		guard = guard + 1
+		if frame.GetObjectType and frame:GetObjectType() == "Button"
+			and frame:IsVisible() and frame:IsEnabled() then
+			for _, region in ipairs({ frame:GetRegions() }) do
+				if region.GetObjectType and region:GetObjectType() == "FontString" then
+					local text = region:GetText()
+					if text and labels[text] then
+						frame:Click()
+						return true
+					end
+				end
+			end
+		end
+		frame = EnumerateFrames(frame)
+	end
+	return false
+end
+
+-- Starts a TSM Auctioning scan by clicking its on-screen scan button.
+-- scanType is "post" (default) or "cancel". Backs the "/emu tsmscan" macros.
+function ns.RunTSMScan(scanType)
+	scanType = (scanType == "cancel") and "cancel" or "post"
+	local pretty = (scanType == "cancel") and "Run Cancel Scan" or "Run Post Scan"
+	if not AddOnLoaded("TradeSkillMaster") then
+		ns.Print("TradeSkillMaster isn't loaded, so there's no scan to run.")
+		return
+	end
+	if InCombatLockdown() then
+		ns.Print("Can't trigger a TSM scan while in combat.")
+		return
+	end
+	if ClickButtonByLabel(TSM_SCAN_LABELS[scanType]) then
+		return
+	end
+	-- Nothing clicked: the Auctioning group-selection screen isn't open, no
+	-- group is selected (the button is disabled), or TSM changed the button.
+	ns.Print("Couldn't find TSM's \"" .. pretty .. "\" button. Open TSM's Auctioning"
+		.. " tab and select a group first. (This macro is fragile -- see its note in"
+		.. " the Macro Builder.)")
+end
+
+--------------------------------------------------------------------------------
 -- Window layout: locked UI panel (default) vs. free-floating
 --------------------------------------------------------------------------------
 
@@ -699,8 +814,12 @@ local function Initialize()
 			elseif not ns.Messages.SendByName(name) then
 				ns.Print("No saved message named \"" .. name .. "\".")
 			end
+		elseif msg == "tsmscan" or msg:sub(1, 8) == "tsmscan " then
+			-- /emu tsmscan [post|cancel]: triggers a TradeSkillMaster Auctioning
+			-- scan (default post). Backs the TSM scan macros in the builder.
+			ns.RunTSMScan((msg == "tsmscan") and "post" or msg:sub(9))
 		elseif msg == "help" then
-			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro | send <name>")
+			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro | send <name> | tsmscan [post|cancel]")
 		else
 			ns.Toggle()
 		end
