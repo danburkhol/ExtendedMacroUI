@@ -795,9 +795,9 @@ function MainFrame:DoNewMacro()
 	self:Refresh()
 	self:UpdateButtons()
 	ns.Editor:FocusName()
-	-- New macros open the picker so the player can set a name and icon.
-	if ns.IconPicker then
-		ns.IconPicker:Open()
+	-- New macros open the Macro Builder so the player can compose a command.
+	if ns.MacroBuilder then
+		ns.MacroBuilder:Open()
 	end
 end
 
