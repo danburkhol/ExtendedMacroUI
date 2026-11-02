@@ -57,6 +57,10 @@ local TARGET_ROW_HEIGHT = 48
 local PREVIEW_SINGLE_HEIGHT = 24
 local PREVIEW_LINE_HEIGHT = 13
 local MAX_PREVIEW_LINES = 12
+-- The explanation line wraps to as many lines as it needs; this baseline is
+-- the space reserved for it in BELOW_LIST_* (two short lines). A longer
+-- description grows the explanation and the window past it.
+local EXPLAIN_SINGLE_HEIGHT = 28
 local QUESTION_MARK_ICON = ns.QUESTION_MARK_ICON
 
 local MacroBuilder = ns.RegisterDockPanel({})
@@ -67,6 +71,7 @@ MacroBuilder.action = "cast"
 MacroBuilder.target = "none"
 MacroBuilder.modifier = "none"
 MacroBuilder.previewHeight = PREVIEW_SINGLE_HEIGHT
+MacroBuilder.explainHeight = EXPLAIN_SINGLE_HEIGHT
 
 local ACTIONS = {
 	{ key = "library", text = "Macro Library" },
@@ -897,6 +902,9 @@ function MacroBuilder:UpdateHeight()
 	else
 		below = BELOW_LIST_FULL
 	end
+	-- The explanation line sits at the very bottom and wraps; a long one grows
+	-- the window past the two lines BELOW_LIST_* already reserve for it.
+	below = below + math.max(0, self.explainHeight - EXPLAIN_SINGLE_HEIGHT)
 	ns.SetInsetContentHeight(self.frame, LIST_TOP + rows * ROW_HEIGHT + LIST_CHROME + below)
 end
 
@@ -969,20 +977,35 @@ local HINTS = {
 	itemrack = "Pick an ItemRack set to build an /itemrack equip command.",
 }
 
--- Grows the preview (and, through UpdateHeight, the window) to fit a multi-line
--- library body, and shrinks it back to one line for composed commands.
+-- Grows the preview and explanation (and, through UpdateHeight, the window) to
+-- fit a multi-line library body and a long description, and shrinks them back
+-- for short composed commands. Call it after the preview/explain text is set,
+-- since the explanation is measured from its wrapped content.
 function MacroBuilder:ResizePreview(line)
-	local height = PREVIEW_SINGLE_HEIGHT
+	local previewHeight = PREVIEW_SINGLE_HEIGHT
 	if self.action == "library" and line ~= "" then
 		local lines = 1
 		for _ in line:gmatch("\n") do
 			lines = lines + 1
 		end
-		height = math.min(lines, MAX_PREVIEW_LINES) * PREVIEW_LINE_HEIGHT + 6
+		previewHeight = math.min(lines, MAX_PREVIEW_LINES) * PREVIEW_LINE_HEIGHT + 6
 	end
-	if height ~= self.previewHeight then
-		self.previewHeight = height
-		self.preview:SetHeight(height)
+
+	-- Let the explanation take as many lines as it wraps to, so long library
+	-- descriptions aren't truncated with an ellipsis. Never shrink below the
+	-- reserved baseline, which keeps the full-action layout steady.
+	local explainHeight = EXPLAIN_SINGLE_HEIGHT
+	local explainText = self.explain:GetText()
+	if explainText and explainText ~= "" then
+		explainHeight = math.max(EXPLAIN_SINGLE_HEIGHT,
+			math.ceil(self.explain:GetStringHeight()) + 2)
+	end
+
+	if previewHeight ~= self.previewHeight or explainHeight ~= self.explainHeight then
+		self.previewHeight = previewHeight
+		self.explainHeight = explainHeight
+		self.preview:SetHeight(previewHeight)
+		self.explain:SetHeight(explainHeight)
 		self:UpdateHeight()
 	end
 end
@@ -990,7 +1013,6 @@ end
 function MacroBuilder:UpdatePreview()
 	local line = self:CurrentLine()
 	local hasLine = line ~= ""
-	self:ResizePreview(line)
 	if hasLine then
 		self.preview:SetText(line)
 		self.preview:SetTextColor(1, 1, 1)
@@ -1002,6 +1024,7 @@ function MacroBuilder:UpdatePreview()
 		self.explain:SetText("")
 		self.insertButton:SetEnabled(false)
 	end
+	self:ResizePreview(line)
 	-- New Macro also needs a free slot in the current tab (and no combat).
 	if self.newMacroButton then
 		self.newMacroButton:SetEnabled(hasLine and ns.MainFrame ~= nil
@@ -1210,7 +1233,7 @@ function MacroBuilder:Create()
 	explain:SetPoint("BOTTOMLEFT", inset, "BOTTOMLEFT", 12, 8)
 	explain:SetPoint("RIGHT", inset, "RIGHT", -12, 0)
 	explain:SetJustifyH("LEFT")
-	explain:SetHeight(28)
+	explain:SetHeight(EXPLAIN_SINGLE_HEIGHT)
 	self.explain = explain
 
 	local preview = inset:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
