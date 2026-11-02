@@ -281,6 +281,33 @@ local LIBRARY = {
 			.. "press this to scan the same groups again. Same on-screen-button trick as "
 			.. "the other scan macros, so the same caveats apply.",
 	},
+	{
+		key = "tsmauctioningtab",
+		name = "TSM Auctioning",
+		note = "(switch tab)",
+		icon = "Interface\\ICONS\\INV_Misc_Coin_03",
+		body = "/emu tsmtab auctioning",
+		desc = "|cffff4040Fragile macro.|r Switches TSM's Auction House window to the "
+			.. "Auctioning tab -- /emu tsmtab auctioning finds and clicks that nav button. "
+			.. "TSM doesn't name the tab buttons, so this reads the on-screen label; open "
+			.. "TSM's Auction House first. It can break if TSM renames the tab or on a "
+			.. "language we don't have the label for. Pair it with the scan macros to jump "
+			.. "straight to Auctioning and start a scan.",
+	},
+	{
+		key = "tsmauctionflow",
+		name = "TSM Auction Scan",
+		note = "(one key)",
+		icon = "Interface\\ICONS\\Ability_Rogue_Sprint",
+		body = "/emu tsmauction",
+		desc = "|cffff4040Fragile macro.|r One key from an open Auction House to a "
+			.. "running scan: /emu tsmauction switches TSM to the Auctioning tab, then a "
+			.. "split second later clicks Run Post Scan to scan your selected group(s). "
+			.. "After a scan finishes, pressing it again clicks Rescan instead -- a post "
+			.. "scan runs over several seconds, so one press can't do both. Open TSM's "
+			.. "Auction House with a group selected first. Built on the same on-screen-"
+			.. "button trick as the other TSM macros, so the same caveats apply.",
+	},
 }
 
 local LIBRARY_BY_KEY = {}

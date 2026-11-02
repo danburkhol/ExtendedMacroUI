@@ -540,6 +540,85 @@ function ns.RunTSMScan(scanType)
 		.. " Macro Builder.)")
 end
 
+-- The TSM Auction House window's top nav tabs are FlashingButtons with no global
+-- name, so (like the scan buttons) a macro can't /click them; we find the tab by
+-- its localized label and click it. Keyed by tab id, with the labels from TSM's
+-- Locale/*.lua. Add more tabs (Shopping, Sniper, My Auctions) here as needed.
+local TSM_TAB_LABELS = {
+	auctioning = ToSet({
+		"Auctioning",         -- enUS / deDE / itIT
+		"Subasta",            -- esMX
+		"Subastar",           -- esES
+		"Mise aux Enchères",  -- frFR
+		"경매",               -- koKR
+		"Postagem",           -- ptBR
+		"Аукцион",            -- ruRU
+		"拍卖",               -- zhCN
+		"拍賣",               -- zhTW
+	}),
+}
+local TSM_TAB_PRETTY = { auctioning = "Auctioning" }
+
+-- Switches TSM's Auction House window to a top nav tab by clicking it.
+-- tabKey is "auctioning" (the only one wired up today). Backs "/emu tsmtab".
+function ns.ClickTSMTab(tabKey)
+	if not TSM_TAB_LABELS[tabKey] then
+		tabKey = "auctioning"
+	end
+	if not AddOnLoaded("TradeSkillMaster") then
+		ns.Print("TradeSkillMaster isn't loaded.")
+		return
+	end
+	if ClickButtonByLabel(TSM_TAB_LABELS[tabKey]) then
+		return
+	end
+	-- Nothing clicked: the TSM Auction House window isn't open, or TSM renamed
+	-- the tab.
+	ns.Print("Couldn't find TSM's \"" .. TSM_TAB_PRETTY[tabKey] .. "\" tab. Open TSM's"
+		.. " Auction House window first. (This macro is fragile -- see its note in the"
+		.. " Macro Builder.)")
+end
+
+-- How long to wait after switching tabs before clicking the scan button, so TSM
+-- has drawn the Auctioning view (its frames draw on a later frame, not inline).
+local TSM_TAB_SETTLE = 0.15
+
+-- The all-in-one: switch to the Auctioning tab, then start a scan. A post scan
+-- runs asynchronously over several seconds, so one press can't both post-scan
+-- and rescan; instead this does the right next step. On the group-selection
+-- screen it clicks Run Post Scan; on a finished scan's results it clicks Rescan.
+-- Backs "/emu tsmauction" -- one key from an open AH to a running scan.
+function ns.RunTSMAuctionFlow()
+	if not AddOnLoaded("TradeSkillMaster") then
+		ns.Print("TradeSkillMaster isn't loaded, so there's no Auction House to scan.")
+		return
+	end
+	if InCombatLockdown() then
+		ns.Print("Can't drive TSM while in combat.")
+		return
+	end
+	-- Step 1: make sure we're on the Auctioning tab (a no-op if already there;
+	-- onTab stays false if the AH window isn't open, so we can say so below).
+	local onTab = ClickButtonByLabel(TSM_TAB_LABELS.auctioning)
+	-- Step 2: once TSM has drawn the view, start the scan. Post first, then fall
+	-- back to Rescan (only one of the two is on screen at a time).
+	C_Timer.After(TSM_TAB_SETTLE, function()
+		if ClickButtonByLabel(TSM_SCAN_LABELS.post) then
+			return
+		end
+		if ClickButtonByLabel(TSM_SCAN_LABELS.rescan) then
+			return
+		end
+		if onTab then
+			ns.Print("On TSM's Auctioning tab, but found no scan to start -- select a"
+				.. " group to post, then press the macro again.")
+		else
+			ns.Print("Couldn't find TSM's Auction House. Open it first, then press the"
+				.. " macro. (This macro is fragile -- see its note in the Macro Builder.)")
+		end
+	end)
+end
+
 --------------------------------------------------------------------------------
 -- Window layout: locked UI panel (default) vs. free-floating
 --------------------------------------------------------------------------------
@@ -835,11 +914,19 @@ local function Initialize()
 				ns.Print("No saved message named \"" .. name .. "\".")
 			end
 		elseif msg == "tsmscan" or msg:sub(1, 8) == "tsmscan " then
-			-- /emu tsmscan [post|cancel]: triggers a TradeSkillMaster Auctioning
-			-- scan (default post). Backs the TSM scan macros in the builder.
+			-- /emu tsmscan [post|cancel|rescan]: triggers a TradeSkillMaster
+			-- Auctioning scan (default post). Backs the TSM scan macros.
 			ns.RunTSMScan((msg == "tsmscan") and "post" or msg:sub(9))
+		elseif msg == "tsmtab" or msg:sub(1, 7) == "tsmtab " then
+			-- /emu tsmtab [auctioning]: switches TSM's Auction House window to a
+			-- top nav tab. Backs the TSM tab macro.
+			ns.ClickTSMTab((msg == "tsmtab") and "auctioning" or msg:sub(8))
+		elseif msg == "tsmauction" then
+			-- /emu tsmauction: switch to the Auctioning tab, then start a scan
+			-- (post, or rescan on finished results). The all-in-one TSM macro.
+			ns.RunTSMAuctionFlow()
 		elseif msg == "help" then
-			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro | send <name> | tsmscan [post|cancel]")
+			ns.Print("/emu - toggle the window.  Also: /emu lock | unlock | options | macro | send <name> | tsmscan [post|cancel|rescan] | tsmtab [auctioning] | tsmauction")
 		else
 			ns.Toggle()
 		end
